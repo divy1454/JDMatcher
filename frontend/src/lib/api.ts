@@ -44,7 +44,19 @@ export async function apiRequest<T = any>(
     } catch {
       errData = { message: response.statusText };
     }
-    throw new ApiError(response.status, errData.message || 'API request failed', errData.code || errData.error, errData);
+
+    const resolvedMessage =
+      errData.message ||
+      (Array.isArray(errData.details)
+        ? errData.details
+            .map((d: any) => `${d.path?.join('.') ? d.path.join('.') + ': ' : ''}${d.message}`)
+            .join(', ')
+        : null) ||
+      errData.error ||
+      response.statusText ||
+      'API request failed';
+
+    throw new ApiError(response.status, resolvedMessage, errData.code || errData.error, errData);
   }
 
   // Handle 204 No Content or empty response bodies gracefully

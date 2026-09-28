@@ -7,9 +7,10 @@ import { eq, and, desc } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
 
 const createRecruiterSchema = z.object({
-  fullName: z.string().min(2),
-  email: z.string().email(),
-  password: z.string().min(8),
+  fullName: z.string().min(2, 'Full Name must be at least 2 characters'),
+  email: z.string().email('Please enter a valid work email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  organizationId: z.string().uuid().optional(),
 });
 
 export const recruitersRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
@@ -77,18 +78,33 @@ export const recruitersRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
     }
   );
 
-  // POST /api/recruiters (Org Admin only: provisions recruiter account)
+  // POST /api/recruiters (Org Admin or Super Admin: provisions recruiter account)
   fastify.post(
     '/',
-    { preHandler: [authGuard, requireRole(['org_admin'])] },
+    { preHandler: [authGuard, requireRole(['org_admin', 'super_admin'])] },
     async (request, reply) => {
       const user = request.user!;
       const parseResult = createRecruiterSchema.safeParse(request.body);
       if (!parseResult.success) {
-        return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parseResult.error.issues });
+        const errorMsg = parseResult.error.issues
+          .map((i) => `${i.path.join('.') || 'field'}: ${i.message}`)
+          .join(', ');
+        return reply.status(400).send({
+          error: 'INVALID_PAYLOAD',
+          message: errorMsg || 'Invalid recruiter payload',
+          details: parseResult.error.issues,
+        });
       }
 
-      const { fullName, email, password } = parseResult.data;
+      const { fullName, email, password, organizationId } = parseResult.data;
+      const targetOrgId = user.organizationId || organizationId;
+
+      if (!targetOrgId) {
+        return reply.status(400).send({
+          error: 'NO_ORGANIZATION',
+          message: 'An organization ID is required to provision a recruiter seat.',
+        });
+      }
 
       const [existing] = await db
         .select({ id: users.id })
@@ -97,7 +113,10 @@ export const recruitersRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
         .limit(1);
 
       if (existing) {
-        return reply.status(409).send({ error: 'EMAIL_EXISTS', message: 'User with this email already exists' });
+        return reply.status(409).send({
+          error: 'EMAIL_EXISTS',
+          message: `A user with email "${email}" already exists. Please choose a different work email.`,
+        });
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
@@ -105,7 +124,7 @@ export const recruitersRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
       const [newRecruiter] = await db
         .insert(users)
         .values({
-          organizationId: user.organizationId!,
+          organizationId: targetOrgId,
           role: 'recruiter',
           email: email.toLowerCase().trim(),
           passwordHash,

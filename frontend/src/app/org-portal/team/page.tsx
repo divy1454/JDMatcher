@@ -23,6 +23,7 @@ export default function RecruiterTeamPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  const [modalError, setModalError] = useState('');
 
   // Form State
   const [formData, setFormData] = useState({
@@ -49,6 +50,7 @@ export default function RecruiterTeamPage() {
   const handleCreateRecruiter = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionLoading(true);
+    setModalError('');
 
     try {
       await apiRequest('/recruiters', {
@@ -62,7 +64,7 @@ export default function RecruiterTeamPage() {
       setTimeout(() => setMsg(''), 4000);
       await fetchTeam();
     } catch (err: any) {
-      alert('Failed to provision recruiter: ' + err.message);
+      setModalError(err.message || 'Failed to provision recruiter');
     } finally {
       setActionLoading(false);
     }
@@ -226,6 +228,12 @@ export default function RecruiterTeamPage() {
               Provide login credentials. The recruiter will use these credentials in the Chrome Extension.
             </p>
 
+            {modalError && (
+              <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+                ⚠️ {modalError}
+              </div>
+            )}
+
             <form onSubmit={handleCreateRecruiter} className="mt-4 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300">Full Name</label>
@@ -256,11 +264,13 @@ export default function RecruiterTeamPage() {
                 <input
                   type="password"
                   required
+                  minLength={6}
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="••••••••••••"
+                  placeholder="•••••••••••• (min 6 chars)"
                   className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-violet-500"
                 />
+                <p className="mt-1 text-[11px] text-slate-400">Minimum 6 characters for Chrome Extension sign-in</p>
               </div>
 
               <div className="mt-6 flex justify-end gap-3 pt-2">
