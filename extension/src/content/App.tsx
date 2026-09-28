@@ -494,42 +494,69 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     : 'BS';
 
   const evalResult = evalState.result;
-  const isApply = evalResult?.verdict === 'APPLY';
+  const isApply = (evalResult?.verdict || '').toUpperCase() === 'APPLY';
   const matchAssessment = evalResult?.matchAssessment || (isApply ? 'Strong Match' : 'Weak Match');
 
-  const jobTitleToDisplay =
-    evalResult?.jobTitle ||
-    evalState.jobTitle ||
-    (jdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 80)) ||
-    (selectedCandidate ? `${selectedCandidate.primaryTitle} Opportunity` : 'Software Engineering Role');
+  // Smart Role / Job Title derivation matching D:\JD Matcher
+  let derivedJobTitle = evalResult?.jobTitle;
+  if (!derivedJobTitle || derivedJobTitle === 'Opportunity' || derivedJobTitle === 'Job Application' || derivedJobTitle === 'Not Specified') {
+    const titleMatch = jdText.match(/(?:title|role|position|seeking a|hiring a)\s*[:\-]?\s*([^\n\r,\.]{3,50})/i);
+    if (titleMatch && titleMatch[1]) {
+      derivedJobTitle = titleMatch[1].trim();
+    } else {
+      const firstLine = jdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().substring(0, 60);
+      if (firstLine && !firstLine.toLowerCase().includes('job description') && firstLine.length > 3) {
+        derivedJobTitle = firstLine;
+      } else {
+        derivedJobTitle = selectedCandidate ? `${selectedCandidate.primaryTitle} Opportunity` : 'Opportunity';
+      }
+    }
+  }
+
+  // Smart Company Name derivation matching D:\JD Matcher
+  let derivedCompanyName = evalResult?.companyName;
+  if (!derivedCompanyName || derivedCompanyName === 'Client' || derivedCompanyName === 'Confidential / Client' || derivedCompanyName === 'Direct Client / Vendor') {
+    const compMatch = jdText.match(/(?:company|client|organization|at|with)\s*[:\-]?\s*([A-Z][A-Za-z0-9\s&]{2,35})/);
+    if (compMatch && compMatch[1]) {
+      derivedCompanyName = compMatch[1].trim();
+    } else {
+      derivedCompanyName = 'Confidential / Client';
+    }
+  }
+
+  const jobTitleToDisplay = derivedJobTitle;
+  const companyNameToDisplay = derivedCompanyName;
+  const candidateNameToDisplay = evalResult?.candidateName || (selectedCandidate ? selectedCandidate.fullName : 'Candidate');
 
   const isEligibilityPassed = typeof evalResult?.isEligible === 'boolean'
     ? evalResult.isEligible
     : isApply;
 
-  const eligibilityMessage = evalResult?.eligibilityCheck || (isEligibilityPassed ? 'No auto-skip triggers.' : 'Eligibility mismatch detected.');
+  const eligibilityMessage = evalResult?.eligibilityCheck ||
+    (isEligibilityPassed
+      ? 'No auto-skip triggers detected. Meets standard bench eligibility.'
+      : 'No-Go — Client requirement barrier or auto-skip trigger detected.');
 
-  const alignedItems =
-    evalResult?.candidateFitCheck?.alignedSkills && evalResult.candidateFitCheck.alignedSkills.length > 0
-      ? evalResult.candidateFitCheck.alignedSkills
-      : evalResult?.keyStrengths && evalResult.keyStrengths.length > 0
-      ? evalResult.keyStrengths
-      : [
-          'Core technical stack alignment',
-          'Demonstrated relevant experience and delivery',
-        ];
+  const alignedItems: string[] = Array.isArray(evalResult?.candidateFitCheck?.alignedSkills)
+    ? evalResult.candidateFitCheck.alignedSkills
+    : Array.isArray(evalResult?.keyStrengths)
+    ? evalResult.keyStrengths
+    : [];
 
-  const missingItems =
-    evalResult?.candidateFitCheck?.gaps && evalResult.candidateFitCheck.gaps.length > 0
-      ? evalResult.candidateFitCheck.gaps
-      : evalResult?.missingCriticalSkills && evalResult.missingCriticalSkills.length > 0
-      ? evalResult.missingCriticalSkills
-      : isApply
-      ? ['None identified']
-      : ['Clearance, experience, or specialized skill gap.'];
+  const missingItems: string[] = Array.isArray(evalResult?.candidateFitCheck?.gaps)
+    ? evalResult.candidateFitCheck.gaps
+    : Array.isArray(evalResult?.missingCriticalSkills)
+    ? evalResult.missingCriticalSkills
+    : [];
 
-  const naturalHighlights = evalResult?.naturalFitHighlights || [];
-  const applicationQuestions = evalResult?.applicationQuestions || [];
+  const naturalHighlights: string[] = Array.isArray(evalResult?.naturalFitHighlights)
+    ? evalResult.naturalFitHighlights
+    : [];
+
+  const applicationQuestions: Array<{ question: string; answer: string }> = Array.isArray(evalResult?.applicationQuestions)
+    ? evalResult.applicationQuestions
+    : [];
+
   const strategicNotes = evalResult?.otherNotes || evalResult?.strategicNotes || '';
 
   return (
@@ -875,133 +902,185 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
             {saveSuccessMsg && <div className="jdm-success-alert">✓ {saveSuccessMsg}</div>}
 
-            {/* 3. Evaluation Results Container (7-Point Blueprint) */}
+            {/* 3. Dynamic Live Results Card (1:1 Exact Blueprint to Image 1 / D:\JD Matcher) */}
             {evalState.status === 'success' && evalResult && (
-              <div className="jdm-results-container">
-                {/* Verdict Top Banner (Red for SKIP, Green for APPLY) */}
-                <div className={isApply ? 'jdm-verdict-banner-apply' : 'jdm-verdict-banner-skip'}>
-                  <div className="jdm-verdict-banner-top">
-                    <div className="jdm-verdict-main-text">
-                      {isApply ? '✓ APPLY' : '✕ SKIP'}
+              <div id="result-card" className="result-card">
+                {/* Hero Verdict Banner */}
+                <div id="verdict-banner" className={`verdict-hero-card ${isApply ? 'banner-apply' : 'banner-skip'}`}>
+                  <div className="hero-top-row">
+                    <div className="verdict-pill-wrap">
+                      <span id="verdict-tag" className="verdict-badge-large">
+                        {isApply ? '✓ APPLY' : '✕ SKIP'}
+                      </span>
                     </div>
-                    <div className="jdm-match-tier-badge">
-                      {matchAssessment}
+                    <div className="match-pill-wrap">
+                      <span id="match-rating-badge" className="match-rating-pill">
+                        {matchAssessment}
+                      </span>
                     </div>
                   </div>
-                  <div className="jdm-verdict-job-title">{jobTitleToDisplay}</div>
+
+                  <div className="hero-role-block">
+                    <div id="res-role-title" className="hero-job-title">{jobTitleToDisplay}</div>
+                    <div id="res-company-name" className="hero-company-name">{companyNameToDisplay}</div>
+                  </div>
+
+                  <div className="hero-cand-row">
+                    <span className="hero-cand-icon">👤</span>
+                    <span id="res-cand-name" className="hero-cand-val">{candidateNameToDisplay}</span>
+                    <span className="hero-meta-divider">•</span>
+                    <span className="hero-badge-tag">Zero Tailoring Policy</span>
+                  </div>
                 </div>
 
-                {/* 1. ELIGIBILITY VERIFICATION */}
-                <div className="jdm-eligibility-card">
-                  <div className="jdm-eligibility-header">
-                    <div className="jdm-eligibility-title-wrap">
-                      <span className="jdm-shield-icon">🛡</span>
-                      <span>1. ELIGIBILITY CHECK</span>
+                {/* Section 1: Eligibility Alert Callout */}
+                <div id="section-eligibility" className={`card-box eligibility-box ${isEligibilityPassed ? 'elig-passed' : 'elig-failed'}`}>
+                  <div className="box-title-row">
+                    <div className="box-title-left">
+                      <span id="elig-icon" className="box-icon">{isEligibilityPassed ? '🛡️' : '⚠️'}</span>
+                      <span className="box-label">1. ELIGIBILITY VERIFICATION</span>
                     </div>
-                    <span className={isEligibilityPassed ? 'jdm-badge-passed' : 'jdm-badge-disqualified'}>
-                      {isEligibilityPassed ? 'PASSED' : 'DISQUALIFIED'}
+                    <span id="elig-status-badge" className={`micro-badge ${isEligibilityPassed ? 'badge-passed' : 'badge-failed'}`}>
+                      {isEligibilityPassed ? 'PASSED' : 'FLAGGED'}
                     </span>
                   </div>
-                  <div className="jdm-eligibility-body">{eligibilityMessage}</div>
+                  <div id="res-eligibility-text" className="box-content-text">{eligibilityMessage}</div>
                 </div>
 
-                {/* 2. DECISION JUSTIFICATION */}
-                <div className="jdm-justification-card">
-                  <div className="jdm-justification-header">
-                    <span>🎯</span>
-                    <span>2. GO / NO-GO JUSTIFICATION</span>
+                {/* Section 2: Decision Justification */}
+                <div className="card-box quote-box">
+                  <div className="box-label-sub">
+                    <span className="sub-icon">🎯</span> Decision Justification
                   </div>
-                  <div className="jdm-justification-body">
-                    {evalResult.verdictJustification || evalResult.reasoning}
+                  <div id="res-justification" className="justification-quote">
+                    {evalResult.verdictJustification || evalResult.reasoning || (isApply ? 'Natural overlap matches core technical deliverables.' : 'Gaps exceed benchmark for zero-tailoring placement.')}
                   </div>
                 </div>
 
-                {/* 3. CANDIDATE FIT CHECK (STACK MATRIX) */}
-                <div className="jdm-matrix-card">
-                  <div className="jdm-matrix-header">
-                    <span>⚖</span>
-                    <span>3. CANDIDATE FIT CHECK</span>
+                {/* Section 3: Fit Check (Aligned vs Gaps) */}
+                <div className="card-box fit-section-box">
+                  <div className="box-label-sub">
+                    <span className="sub-icon">⚖️</span> Candidate Stack Matrix
                   </div>
-                  <div className="jdm-matrix-grid">
-                    {/* Left: Aligned Overlaps */}
-                    <div className="jdm-matrix-col-aligned">
-                      <div className="jdm-matrix-col-header">
-                        <span className="jdm-aligned-title">✓ ALIGNED OVERLAPS</span>
-                        <span className="jdm-aligned-count">{alignedItems.length}</span>
+                  <div className="fit-columns-grid">
+                    <div className="fit-column col-aligned">
+                      <div className="col-header aligned-header">
+                        <span>✓ Aligned Overlaps</span>
+                        <span id="count-aligned" className="chip-count count-aligned">{alignedItems.length}</span>
                       </div>
-                      {alignedItems.map((item, idx) => (
-                        <div key={idx} className="jdm-item-aligned">
-                          ✓ {item.replace(/^[✓\s*•-]+/, '')}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Right: Missing Gaps */}
-                    <div className="jdm-matrix-col-gaps">
-                      <div className="jdm-matrix-col-header">
-                        <span className="jdm-gaps-title">✕ GAPS</span>
-                        <span className="jdm-gaps-count">{missingItems.length}</span>
+                      <div id="res-aligned-skills" className="chip-container">
+                        {alignedItems.length === 0 ? (
+                          <span className="chip" style={{ background: '#f1f5f9', color: '#64748b' }}>None detected</span>
+                        ) : (
+                          alignedItems.map((skill, idx) => (
+                            <span key={idx} className="chip chip-aligned">
+                              ✓ {skill.replace(/^[✓\s*•-]+/, '')}
+                            </span>
+                          ))
+                        )}
                       </div>
-                      {missingItems.map((item, idx) => (
-                        <div key={idx} className="jdm-item-gap">
-                          ✕ {item.replace(/^[✕\s*•-]+/, '')}
-                        </div>
-                      ))}
+                    </div>
+                    <div className="fit-column col-gaps">
+                      <div className="col-header gaps-header">
+                        <span>✕ Missing Gaps</span>
+                        <span id="count-gaps" className="chip-count count-gaps">{missingItems.length}</span>
+                      </div>
+                      <div id="res-gaps" className="chip-container">
+                        {missingItems.length === 0 ? (
+                          <span className="chip" style={{ background: '#f0fdf4', color: '#065f46' }}>No critical gaps</span>
+                        ) : (
+                          missingItems.map((gap, idx) => (
+                            <span key={idx} className="chip chip-gap">
+                              ✕ {gap.replace(/^[✕\s*•-]+/, '')}
+                            </span>
+                          ))
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* 4. NATURAL FIT HIGHLIGHTS (If Go or present) */}
-                {naturalHighlights.length > 0 && (
-                  <div className="jdm-highlights-card">
-                    <div className="jdm-highlights-header">
-                      <span>✨</span>
-                      <span>4. NATURAL FIT HIGHLIGHTS</span>
-                    </div>
-                    <div className="jdm-highlights-body">
-                      {naturalHighlights.map((hl, idx) => (
-                        <div key={idx}>• {hl.replace(/^[•\s*-]+/, '')}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 5. APPLICATION QUESTIONS (If provided in JD) */}
-                {applicationQuestions.length > 0 && (
-                  <div className="jdm-qa-card">
-                    <div className="jdm-qa-header">
-                      <span>💬</span>
-                      <span>5. APPLICATION QUESTIONS</span>
-                    </div>
-                    <div>
-                      {applicationQuestions.map((qa, idx) => (
-                        <div key={idx} className="jdm-qa-item">
-                          <div className="jdm-qa-q">Q: {qa.question}</div>
-                          <div className="jdm-qa-a">A: {qa.answer}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 6. STRATEGIC PLACEMENT NOTES */}
+                {/* Section 4: Strategic Notes */}
                 {strategicNotes && (
-                  <div className="jdm-notes-card">
-                    <div className="jdm-notes-header">
-                      <span>💡</span>
-                      <span>6. STRATEGIC NOTES</span>
+                  <div id="section-notes" className="card-box strategy-box">
+                    <div className="box-label-sub">
+                      <span className="sub-icon">💡</span> Strategic Placement Notes
                     </div>
-                    <div className="jdm-notes-body">{strategicNotes}</div>
+                    <div id="res-other-notes" className="strategy-text">{strategicNotes}</div>
                   </div>
                 )}
 
-                {/* 7. Bottom Decision Buttons */}
-                <div className="jdm-decision-actions">
-                  <button className="jdm-btn-applied" onClick={handleSaveApplied} disabled={isSaving}>
-                    {isSaving ? 'Saving...' : '✓ Save as Applied'}
+                {/* Section 5: Natural Fit Highlights (Zero Tailoring) - Shown when Apply */}
+                {isApply && naturalHighlights.length > 0 && (
+                  <div id="section-highlights" className="card-box highlights-box">
+                    <div className="box-label-sub">
+                      <span className="sub-icon">✨</span> Natural Fit Highlights (Zero Tailoring)
+                    </div>
+                    <ul id="res-highlights-list" className="styled-highlights-list">
+                      {naturalHighlights.map((hl, idx) => (
+                        <li key={idx} className="highlight-item">
+                          <span className="highlight-bullet">✦</span>
+                          <span>{hl.replace(/^[✦•\s*-]+/, '')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Section 6: Application Questions (if any) */}
+                {applicationQuestions.length > 0 && (
+                  <div id="section-questions" className="card-box qa-box">
+                    <div className="box-label-sub">
+                      <span className="sub-icon">💬</span> Application Questions &amp; Draft Answers
+                    </div>
+                    <div id="res-questions-container" className="qa-block-list">
+                      {applicationQuestions.map((qa, idx) => (
+                        <div key={idx} className="qa-item">
+                          <div className="qa-q-row">
+                            <div className="qa-q">Q: {qa.question}</div>
+                            <button
+                              type="button"
+                              className="btn-copy-qa"
+                              title="Copy answer to clipboard"
+                              onClick={() => {
+                                navigator.clipboard.writeText(qa.answer);
+                                setSaveSuccessMsg('Copied answer to clipboard!');
+                                setTimeout(() => setSaveSuccessMsg(''), 2000);
+                              }}
+                            >
+                              Copy Answer
+                            </button>
+                          </div>
+                          <div className="qa-a">{qa.answer}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Decision Footer Actions: ONLY Applied / Not Applied */}
+                <div className="verdict-footer-actions">
+                  <button
+                    type="button"
+                    id="btn-applied"
+                    className="footer-btn btn-applied"
+                    onClick={handleSaveApplied}
+                    disabled={isSaving}
+                    title="Save this JD as Applied"
+                  >
+                    <span className="btn-action-icon">✓</span>
+                    <span className="btn-action-label">{isSaving ? 'Saving...' : 'Applied'}</span>
                   </button>
-                  <button className="jdm-btn-not-applied" onClick={handleDiscard} disabled={isSaving}>
-                    ✕ Not Applied
+                  <button
+                    type="button"
+                    id="btn-not-applied"
+                    className="footer-btn btn-not-applied"
+                    onClick={handleDiscard}
+                    disabled={isSaving}
+                    title="Do not save - Clear JD"
+                  >
+                    <span className="btn-action-icon">✕</span>
+                    <span className="btn-action-label">Not Applied</span>
                   </button>
                 </div>
               </div>

@@ -500,7 +500,8 @@
   color: #fbbf24;
 }
 
-/* 4. Evaluation Results Components (Exact Match to Image 1 & 2) */
+/* 4. Evaluation Results Components (1:1 Exact Match to D:\JD Matcher / Image 1) */
+.result-card,
 .jdm-results-container {
   display: flex;
   flex-direction: column;
@@ -508,397 +509,460 @@
   animation: jdmSlideDown 0.2s ease-out;
 }
 
-/* Verdict Top Banner (Red for SKIP, Green for APPLY) */
-.jdm-verdict-banner-skip {
-  background: linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%);
-  border-radius: 12px;
+/* Hero Verdict Banner */
+.verdict-hero-card {
   padding: 14px 16px;
+  border-radius: 12px;
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(185, 28, 28, 0.25);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.jdm-verdict-banner-apply {
-  background: linear-gradient(135deg, #059669 0%, #065f46 100%);
-  border-radius: 12px;
-  padding: 14px 16px;
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+.banner-apply {
+  background: linear-gradient(135deg, #059669 0%, #047857 40%, #064e3b 100%);
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
-.jdm-verdict-banner-top {
+.banner-skip {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 40%, #7f1d1d 100%);
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.hero-top-row {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
 }
 
-.jdm-verdict-main-text {
-  font-size: 20px;
+.verdict-badge-large {
+  font-size: 22px;
   font-weight: 900;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.8px;
   display: flex;
   align-items: center;
   gap: 6px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.jdm-match-tier-badge {
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: #ffffff;
+.match-rating-pill {
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
   font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 800;
   padding: 3px 10px;
   border-radius: 9999px;
-  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.jdm-verdict-job-title {
-  font-size: 14px;
+.hero-role-block {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+}
+
+.hero-job-title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.hero-company-name {
+  font-size: 11.5px;
+  opacity: 0.92;
+  margin-top: 2px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.hero-cand-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+}
+
+.hero-cand-icon {
+  font-size: 11px;
+}
+
+.hero-cand-val {
   font-weight: 700;
-  margin-top: 6px;
   color: #ffffff;
-  line-height: 1.35;
 }
 
-/* Card 1: 1. ELIGIBILITY VERIFICATION */
-.jdm-eligibility-card {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-left: 4px solid #16a34a;
-  border-radius: 10px;
-  padding: 12px 14px;
+.hero-meta-divider {
+  opacity: 0.6;
 }
 
-.jdm-eligibility-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.jdm-eligibility-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.jdm-shield-icon {
-  font-size: 13px;
-  color: #0284c7;
-}
-
-.jdm-badge-passed {
-  background: #10b981;
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 2.5px 8px;
+.hero-badge-tag {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  padding: 1px 6px;
   border-radius: 4px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
 }
 
-.jdm-badge-disqualified {
-  background: #ef4444;
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 2.5px 8px;
-  border-radius: 4px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.jdm-eligibility-body {
-  font-size: 12px;
-  color: #1e293b;
-  margin-top: 6px;
-  line-height: 1.4;
-}
-
-/* Card 2: DECISION JUSTIFICATION */
-.jdm-justification-card {
-  background: #f0f4ff;
-  border: 1px solid #dbeafe;
-  border-radius: 10px;
-  padding: 12px 14px;
-}
-
-.jdm-justification-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 800;
-  color: #3b82f6;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.jdm-justification-body {
-  font-size: 12.5px;
-  color: #1e293b;
-  line-height: 1.45;
-  margin-top: 6px;
-}
-
-/* Card 3: CANDIDATE STACK MATRIX */
-.jdm-matrix-card {
+/* Inner Card Boxes */
+.card-box {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 10px 12px;
+  transition: all 0.15s ease-in-out;
 }
 
-.jdm-matrix-header {
+.box-label-sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 6px;
+}
+
+.sub-icon {
+  font-size: 11px;
+}
+
+/* Section 1: Eligibility */
+.eligibility-box {
+  border-left: 3.5px solid transparent;
+}
+
+.eligibility-box.elig-passed {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  border-left-color: #059669;
+}
+
+.eligibility-box.elig-failed {
+  background: #fef2f2;
+  border-color: #fecdd3;
+  border-left-color: #dc2626;
+}
+
+.box-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.box-title-left {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
-  font-weight: 800;
-  color: #475569;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
-.jdm-matrix-grid {
+.box-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.4px;
+}
+
+.micro-badge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+.badge-passed {
+  background: #059669;
+  color: #ffffff;
+}
+
+.badge-failed {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.box-content-text {
+  font-size: 11.5px;
+  color: #1e293b;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* Section 2: Quote Box / Decision Justification */
+.quote-box {
+  border-left: 3.5px solid #6366f1;
+  background: #f8faff;
+  border-color: #e0e7ff;
+}
+
+.justification-quote {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.5;
+}
+
+/* Section 3: Fit Columns Grid */
+.fit-section-box {
+  background: #ffffff;
+}
+
+.fit-columns-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 8px;
 }
 
-.jdm-matrix-col-aligned {
+.fit-column {
+  border-radius: 8px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.jdm-matrix-col-gaps {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.jdm-matrix-col-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 2px;
-}
-
-.jdm-aligned-title {
-  font-size: 10.5px;
-  font-weight: 800;
-  color: #15803d;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.jdm-gaps-title {
-  font-size: 10.5px;
-  font-weight: 800;
-  color: #b91c1c;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.jdm-aligned-count {
-  background: #dcfce7;
-  color: #15803d;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 1px 6px;
-  border-radius: 9999px;
-}
-
-.jdm-gaps-count {
-  background: #fee2e2;
-  color: #b91c1c;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 1px 6px;
-  border-radius: 9999px;
-}
-
-.jdm-item-aligned {
+.col-aligned {
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
-  color: #166534;
-  font-size: 11px;
-  line-height: 1.35;
-  padding: 7px 9px;
-  border-radius: 6px;
 }
 
-.jdm-item-gap {
+.col-gaps {
   background: #fef2f2;
-  border: 1px solid #fecaca;
+  border: 1px solid #fecdd3;
+}
+
+.col-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.aligned-header { color: #065f46; }
+.gaps-header { color: #991b1b; }
+
+.chip-count {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 9999px;
+}
+
+.count-aligned {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.count-gaps {
+  background: #fee2e2;
   color: #991b1b;
-  font-size: 11px;
-  line-height: 1.35;
-  padding: 7px 9px;
-  border-radius: 6px;
 }
 
-/* Card 4: STRATEGIC PLACEMENT NOTES */
-.jdm-notes-card {
-  background: #fffbeb;
-  border: 1px solid #fef08a;
-  border-left: 4px solid #f59e0b;
-  border-radius: 10px;
-  padding: 12px 14px;
-}
-
-.jdm-notes-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 800;
-  color: #b45309;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.jdm-notes-body {
-  font-size: 12px;
-  color: #78350f;
-  line-height: 1.45;
-  margin-top: 6px;
-}
-
-/* Card: NATURAL FIT HIGHLIGHTS */
-.jdm-highlights-card {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-left: 4px solid #10b981;
-  border-radius: 10px;
-  padding: 12px 14px;
-}
-
-.jdm-highlights-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 800;
-  color: #047857;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.jdm-highlights-body {
-  font-size: 11.5px;
-  color: #065f46;
-  line-height: 1.45;
-  margin-top: 6px;
+.chip-container {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-/* Card: APPLICATION QUESTIONS */
-.jdm-qa-card {
+.chip {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 4px 7px;
+  border-radius: 5px;
+  line-height: 1.35;
+  transition: transform 0.1s ease;
+  word-break: break-word;
+}
+
+.chip:hover {
+  transform: translateY(-1px);
+}
+
+.chip-aligned {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.chip-gap {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecdd3;
+}
+
+/* Highlights List */
+.highlights-box {
+  background: #ffffff;
+}
+
+.styled-highlights-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.highlight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  color: #334155;
+  line-height: 1.4;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  padding: 6px 9px;
+  border-radius: 6px;
+}
+
+.highlight-bullet {
+  color: #059669;
+  font-weight: 800;
+  font-size: 11px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Q&A */
+.qa-box {
+  background: #ffffff;
+}
+
+.qa-block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qa-item {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-left: 4px solid #6366f1;
-  border-radius: 10px;
-  padding: 12px 14px;
-}
-
-.jdm-qa-header {
+  border-radius: 7px;
+  padding: 8px 10px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qa-q-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 6px;
-  font-size: 11.5px;
-  font-weight: 800;
-  color: #4338ca;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
-.jdm-qa-item {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed #cbd5e1;
-}
-
-.jdm-qa-item:first-child {
-  margin-top: 6px;
-  padding-top: 0;
-  border-top: none;
-}
-
-.jdm-qa-q {
-  font-size: 11.5px;
+.qa-q {
+  font-size: 11px;
   font-weight: 700;
-  color: #1e293b;
+  color: #0f172a;
 }
 
-.jdm-qa-a {
-  font-size: 11.5px;
+.btn-copy-qa {
+  background: #e0e7ff;
+  color: #4338ca;
+  border: none;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: all 0.1s;
+  flex-shrink: 0;
+}
+
+.btn-copy-qa:hover {
+  background: #c7d2fe;
+}
+
+.qa-a {
+  font-size: 10.5px;
   color: #334155;
-  margin-top: 2px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 4px 8px;
+  border-radius: 5px;
+  line-height: 1.35;
 }
 
-/* Card 5: Bottom Decision Buttons (Applied / Not Applied) */
-.jdm-decision-actions {
+/* Strategy Box */
+.strategy-box {
+  background: #fffdf5;
+  border: 1px solid #fef3c7;
+  border-left: 3.5px solid #f59e0b;
+}
+
+.strategy-text {
+  font-size: 11px;
+  color: #92400e;
+  line-height: 1.45;
+  font-weight: 500;
+}
+
+/* Decision Footer Actions */
+.verdict-footer-actions {
   display: flex;
   gap: 10px;
   margin-top: 4px;
 }
 
-.jdm-btn-applied {
-  background: #059669;
-  color: #ffffff;
-  border: none;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font-size: 14px;
-  font-weight: 700;
+.footer-btn {
   flex: 1;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
   transition: all 0.15s ease;
+  border: none;
 }
 
-.jdm-btn-applied:hover {
+.btn-applied {
+  background: #059669;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
+}
+
+.btn-applied:hover:not(:disabled) {
   background: #047857;
 }
 
-.jdm-btn-applied:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.jdm-btn-not-applied {
-  background: #ffffff;
+.btn-not-applied {
+  background: #f1f5f9;
   color: #dc2626;
-  border: 1.5px solid #ef4444;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font-size: 14px;
-  font-weight: 700;
-  flex: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: all 0.15s ease;
+  border: 1.5px solid #fecaca;
 }
 
-.jdm-btn-not-applied:hover {
-  background: #fef2f2;
+.btn-not-applied:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+.footer-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Login Box */

@@ -56,11 +56,35 @@ export class GeminiService {
         'gemini-3.5-flash',
       ];
 
+      let finalPrompt = prompt;
+      if (!prompt.includes('"jobTitle"') && !prompt.includes('"candidateFitCheck"')) {
+        finalPrompt += `\n\nCRITICAL JSON INSTRUCTION:
+You MUST respond strictly with valid, unescaped JSON matching this schema exactly (do not output any conversational text or markdown ticks):
+{
+  "jobTitle": "Extracted or inferred Job Title from the JD (or 'Not Specified')",
+  "companyName": "Extracted Company or Client name from the JD (or 'Confidential / Client')",
+  "eligibilityCheck": "String: e.g. 'No auto-skip triggers.' or 'No-Go — US Citizenship required'",
+  "isEligible": true,
+  "matchAssessment": "Strong Match" | "Moderate Match" | "Weak Match",
+  "candidateFitCheck": {
+    "alignedSkills": ["skill 1", "skill 2"],
+    "gaps": ["gap 1", "gap 2"]
+  },
+  "verdict": "Apply" | "Skip",
+  "verdictJustification": "One-line concise justification",
+  "naturalFitHighlights": ["highlight 1", "highlight 2"],
+  "applicationQuestions": [
+    { "question": "...", "answer": "..." }
+  ],
+  "otherNotes": "1-2 lines quick tips / red flags / strategic notes"
+}`;
+      }
+
       for (const modelName of candidateModels) {
         try {
           const response = await client.models.generateContent({
             model: modelName,
-            contents: prompt,
+            contents: finalPrompt,
             config: {
               temperature: 0.1,
               responseMimeType: 'application/json',
@@ -77,52 +101,89 @@ export class GeminiService {
           const parsed = JSON.parse(cleanedText);
 
           // Extract or estimate tokens from metadata
-          const inputTokens = response.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / 4);
+          const inputTokens = response.usageMetadata?.promptTokenCount || Math.ceil(finalPrompt.length / 4);
           const outputTokens = response.usageMetadata?.candidatesTokenCount || Math.ceil(cleanedText.length / 4);
 
-          const isApply = parsed.verdict?.toString().trim().toUpperCase() === 'APPLY';
+          const rawVerdict = (parsed.verdict || parsed.go_no_go_decision || parsed.decision || '').toString().trim();
+          const isApply = rawVerdict.toUpperCase().includes('APPLY') || (rawVerdict.toLowerCase().startsWith('go') && !rawVerdict.toLowerCase().includes('no-go'));
           const verdict: 'APPLY' | 'SKIP' = isApply ? 'APPLY' : 'SKIP';
 
-          const matchAssessment = parsed.matchAssessment || (isApply ? 'Strong Match' : 'Weak Match');
+          const matchAssessment = parsed.matchAssessment || parsed.profile_match_assessment || parsed.match_assessment || (isApply ? 'Strong Match' : 'Weak Match');
           let calculatedScore = 50;
           if (matchAssessment.toLowerCase().includes('strong')) calculatedScore = 90;
           else if (matchAssessment.toLowerCase().includes('moderate')) calculatedScore = 70;
           else calculatedScore = 40;
 
-          const alignedSkills = Array.isArray(parsed.candidateFitCheck?.alignedSkills)
-            ? parsed.candidateFitCheck.alignedSkills
-            : Array.isArray(parsed.keyStrengths)
-            ? parsed.keyStrengths
-            : [];
+          const eligibilityCheck = parsed.eligibilityCheck || parsed.eligibility_check || parsed.eligibility || (isApply ? 'No auto-skip triggers detected. Meets standard bench eligibility.' : 'No-Go Flagged: Requirement barrier detected.');
+          const isEligible = typeof parsed.isEligible === 'boolean'
+            ? parsed.isEligible
+            : typeof parsed.is_eligible === 'boolean'
+            ? parsed.is_eligible
+            : !eligibilityCheck.toLowerCase().includes('no-go') && isApply;
 
-          const gaps = Array.isArray(parsed.candidateFitCheck?.gaps)
-            ? parsed.candidateFitCheck.gaps
-            : Array.isArray(parsed.missingCriticalSkills)
-            ? parsed.missingCriticalSkills
-            : [];
+          let alignedSkills: string[] = [];
+          let gaps: string[] = [];
+
+          if (parsed.candidateFitCheck && typeof parsed.candidateFitCheck === 'object') {
+            if (Array.isArray(parsed.candidateFitCheck.alignedSkills)) alignedSkills = parsed.candidateFitCheck.alignedSkills;
+            else if (Array.isArray(parsed.candidateFitCheck.aligned_skills)) alignedSkills = parsed.candidateFitCheck.aligned_skills;
+
+            if (Array.isArray(parsed.candidateFitCheck.gaps)) gaps = parsed.candidateFitCheck.gaps;
+            else if (Array.isArray(parsed.candidateFitCheck.missing_skills)) gaps = parsed.candidateFitCheck.missing_skills;
+          } else if (Array.isArray(parsed.keyStrengths)) {
+            alignedSkills = parsed.keyStrengths;
+          } else if (typeof parsed.candidate_fit_check === 'string') {
+            alignedSkills = [parsed.candidate_fit_check];
+          }
+
+          if (Array.isArray(parsed.missingCriticalSkills) && gaps.length === 0) {
+            gaps = parsed.missingCriticalSkills;
+          }
 
           const naturalHighlights = Array.isArray(parsed.naturalFitHighlights)
             ? parsed.naturalFitHighlights
+            : Array.isArray(parsed.natural_fit_highlights)
+            ? parsed.natural_fit_highlights
             : alignedSkills;
 
-          const justification = parsed.verdictJustification || parsed.reasoning || (isApply ? 'Strong natural fit' : 'Candidate does not meet core requirements');
+          const justification = parsed.verdictJustification || parsed.verdict_justification || parsed.reasoning || (isApply ? 'Strong natural fit' : 'Candidate does not meet core requirements');
+
+          let jobTitle = parsed.jobTitle || parsed.job_title;
+          if (!jobTitle || jobTitle === 'Not Specified' || jobTitle === 'Job Application' || jobTitle === 'Opportunity') {
+            const titleMatch = prompt.match(/(?:title|role|position|seeking a|hiring a)\s*[:\-]?\s*([^\n\r,\.]{3,50})/i);
+            jobTitle = titleMatch ? titleMatch[1].trim() : 'Software Opportunity';
+          }
+
+          let companyName = parsed.companyName || parsed.company_name;
+          if (!companyName || companyName === 'Confidential / Client' || companyName === 'Client' || companyName === 'Direct Client / Vendor') {
+            const compMatch = prompt.match(/(?:company|client|organization|at|with)\s*[:\-]?\s*([A-Z][A-Za-z0-9\s&]{2,35})/);
+            companyName = compMatch ? compMatch[1].trim() : 'Confidential / Client';
+          }
+
+          const applicationQuestions = Array.isArray(parsed.applicationQuestions)
+            ? parsed.applicationQuestions
+            : Array.isArray(parsed.application_questions)
+            ? parsed.application_questions
+            : [];
+
+          const otherNotes = parsed.otherNotes || parsed.other_notes || '';
 
           return {
             result: {
               verdict,
               verdictJustification: justification,
-              jobTitle: parsed.jobTitle || 'Opportunity',
-              companyName: parsed.companyName || 'Client',
-              eligibilityCheck: parsed.eligibilityCheck || (isApply ? 'No auto-skip triggers.' : 'Eligibility mismatch detected.'),
-              isEligible: typeof parsed.isEligible === 'boolean' ? parsed.isEligible : isApply,
+              jobTitle,
+              companyName,
+              eligibilityCheck,
+              isEligible,
               matchAssessment,
               candidateFitCheck: {
                 alignedSkills,
                 gaps,
               },
               naturalFitHighlights: naturalHighlights,
-              applicationQuestions: Array.isArray(parsed.applicationQuestions) ? parsed.applicationQuestions : [],
-              otherNotes: parsed.otherNotes || '',
+              applicationQuestions,
+              otherNotes,
               matchScore: Number(parsed.matchScore) || calculatedScore,
               reasoning: justification,
               keyStrengths: alignedSkills,
