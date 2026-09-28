@@ -3,8 +3,12 @@ import path from 'path';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  output: 'standalone',
   outputFileTracingRoot: path.join(__dirname, '../'),
+  ...(process.env.BUILD_STANDALONE === 'true'
+    ? {
+        output: 'standalone',
+      }
+    : {}),
   eslint: {
     ignoreDuringBuilds: true,
   },
