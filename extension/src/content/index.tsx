@@ -100,17 +100,30 @@ function initWidget() {
     const isPortalUrl = window.location.href.includes('localhost') || 
                         window.location.href.includes('127.0.0.1') || 
                         window.location.href.includes('recruiter-portal') ||
-                        window.location.href.includes('jdmatcher');
+                        window.location.href.includes('jdmatcher') ||
+                        window.location.href.includes('jd-matcher-pdm1');
     if (isPortalUrl) {
       const localToken = localStorage.getItem('token');
       if (localToken) {
-        chrome.storage.local.get(['token'], async (stored) => {
+        chrome.storage.local.get(['token', 'apiUrl', 'frontendUrl'], async (stored) => {
+          const updates: Record<string, any> = {};
           if (!stored.token || stored.token !== localToken) {
-            await chrome.storage.local.set({
-              token: localToken,
-              frontendUrl: window.location.origin,
-            });
-            console.log('[JDMatcher] Auto-detected local portal token.');
+            updates.token = localToken;
+          }
+          const targetFrontend = window.location.origin.includes('localhost')
+            ? window.location.origin
+            : 'https://jdmatcher-fe.onrender.com';
+          if (!stored.frontendUrl || stored.frontendUrl !== targetFrontend || stored.frontendUrl.includes('jd-matcher-pdm1')) {
+            updates.frontendUrl = targetFrontend;
+          }
+          if (!stored.apiUrl || stored.apiUrl.includes('jd-matcher-pdm1') || stored.apiUrl.includes('recruiter-portal') || stored.apiUrl.includes('jdmatcher-fe')) {
+            updates.apiUrl = window.location.origin.includes('localhost')
+              ? 'http://localhost:4000'
+              : 'https://jdmatcher-be.onrender.com';
+          }
+          if (Object.keys(updates).length > 0) {
+            await chrome.storage.local.set(updates);
+            console.log('[JDMatcher] Auto-detected portal session, synced storage:', updates);
           }
         });
       }

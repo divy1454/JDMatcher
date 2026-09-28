@@ -32,8 +32,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const [evalState, setEvalState] = useState<StoredEvaluationState>({ status: 'idle' });
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
-  const DEFAULT_API_URL = 'https://jdmatcher-api.onrender.com';
-  const DEFAULT_FRONTEND_URL = 'https://jdmatcher-app.onrender.com';
+  const DEFAULT_API_URL = 'https://jdmatcher-be.onrender.com';
+  const DEFAULT_FRONTEND_URL = 'https://jdmatcher-fe.onrender.com';
 
   const [frontendUrl, setFrontendUrl] = useState<string>(DEFAULT_FRONTEND_URL);
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_API_URL);
@@ -45,7 +45,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     const data = await chrome.storage.local.get(['apiUrl', 'frontendUrl']);
     if (data.apiUrl && typeof data.apiUrl === 'string' && data.apiUrl.trim()) {
       const clean = data.apiUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
-      if (!clean.includes('jdmatcher-be.onrender.com')) {
+      // Guard: Ensure apiUrl is NEVER set to the frontend web app domain
+      if (!clean.includes('jdmatcher-fe') && !clean.includes('recruiter-portal') && !clean.includes('jd-matcher-pdm1')) {
         return clean;
       }
     }
@@ -82,7 +83,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
     chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl'], async (data) => {
       let activeApiUrl = data.apiUrl;
-      if (!activeApiUrl || activeApiUrl.includes('jdmatcher-be.onrender.com')) {
+      // If apiUrl is missing, or set to the frontend domain, or contains old test URLs, fix to real backend!
+      if (!activeApiUrl || activeApiUrl.includes('jd-matcher-pdm1') || activeApiUrl.includes('jdmatcher-fe') || activeApiUrl.includes('recruiter-portal') || activeApiUrl.includes('jdmatcher-api.onrender.com')) {
         if (data.frontendUrl?.includes('localhost') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
           activeApiUrl = 'http://localhost:4000';
         } else {
@@ -93,7 +95,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       setServerUrl(activeApiUrl);
 
       let activeFrontendUrl = data.frontendUrl;
-      if (!activeFrontendUrl || activeFrontendUrl.includes('jdmatcher-fe.onrender.com')) {
+      // If frontendUrl is missing or points to the old pdm1/app domains, update to the actual frontend: jdmatcher-fe.onrender.com
+      if (!activeFrontendUrl || activeFrontendUrl.includes('jd-matcher-pdm1') || activeFrontendUrl.includes('jdmatcher-app.onrender.com')) {
         activeFrontendUrl = DEFAULT_FRONTEND_URL;
         await chrome.storage.local.set({ frontendUrl: DEFAULT_FRONTEND_URL });
       }
@@ -170,8 +173,30 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       }
 
       if (res.status === 401) {
-        setCandidateFetchError('SESSION_EXPIRED');
+        console.warn('[JDMatcher] Token returned 401 Unauthorized. Attempting to sync fresh token from portal...');
+        // Try auto-sync with active portal tab before giving up
+        try {
+          const syncRes = await new Promise<any>((resolve) => {
+            chrome.runtime.sendMessage({ type: 'SYNC_FROM_PORTAL' }, (response) => {
+              resolve(response);
+            });
+          });
+          if (syncRes && syncRes.success && syncRes.token && syncRes.token !== authToken) {
+            console.log('[JDMatcher] Successfully retrieved fresh session token from portal tab!');
+            setToken(syncRes.token);
+            if (syncRes.userName) setUserName(syncRes.userName);
+            await fetchCandidates(syncRes.token);
+            return;
+          }
+        } catch (_syncErr) {}
+
+        // Token is genuinely expired and no fresh portal session exists: reset token so login form appears!
+        await chrome.storage.local.remove(['token', 'userName']);
+        setToken('');
+        setUserName('');
         setCandidates([]);
+        setLoginError('Your session has expired. Please sign in or click Auto-Sync below.');
+        setCandidateFetchError('SESSION_EXPIRED');
         return;
       }
 
@@ -209,6 +234,32 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       setCandidates([]);
     } finally {
       setIsLoadingCandidates(false);
+    }
+  };
+
+  // Smart reload: attempt syncing fresh token from portal first, then fetch
+  const handleSmartRefresh = async () => {
+    setIsLoadingCandidates(true);
+    setCandidateFetchError('');
+    try {
+      const syncRes = await new Promise<any>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'SYNC_FROM_PORTAL' }, (response) => {
+          resolve(response);
+        });
+      });
+      if (syncRes && syncRes.success && syncRes.token) {
+        setToken(syncRes.token);
+        if (syncRes.userName) setUserName(syncRes.userName);
+        await fetchCandidates(syncRes.token);
+        return;
+      }
+    } catch (_e) {}
+
+    if (token) {
+      await fetchCandidates(token);
+    } else {
+      setIsLoadingCandidates(false);
+      setCandidateFetchError('SESSION_EXPIRED');
     }
   };
 
@@ -250,8 +301,10 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       let baseUrl = await getApiUrl();
       if (serverUrl && serverUrl.trim()) {
         const cleaned = serverUrl.trim().replace(/\/+$/, '');
-        baseUrl = cleaned;
-        await chrome.storage.local.set({ apiUrl: cleaned });
+        if (!cleaned.includes('jd-matcher-pdm1') && !cleaned.includes('recruiter-portal') && !cleaned.includes('jdmatcher-fe')) {
+          baseUrl = cleaned;
+          await chrome.storage.local.set({ apiUrl: cleaned });
+        }
       }
 
       let deviceData = await chrome.storage.local.get(['deviceId']);
@@ -691,7 +744,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <button
                     type="button"
-                    onClick={() => fetchCandidates(token)}
+                    onClick={handleSmartRefresh}
                     disabled={isLoadingCandidates}
                     className={`jdm-refresh-icon-btn ${isLoadingCandidates ? 'is-spinning' : ''}`}
                     title="Refresh Candidate Roster"
@@ -722,35 +775,69 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                   <div className="jdm-no-candidates-icon-wrap">
                     <span className="jdm-no-candidates-icon">👥</span>
                   </div>
-                  <div className="jdm-no-candidates-title">No Candidates Found</div>
+                  <div className="jdm-no-candidates-title">
+                    {candidateFetchError === 'SESSION_EXPIRED' ? 'Session Expired' : 'No Candidates Found'}
+                  </div>
                   <div className="jdm-no-candidates-desc">
                     {candidateFetchError === 'SUPER_ADMIN_RESTRICTED'
                       ? 'You are signed in as Super Admin. Super Admins are restricted from viewing candidate talent resumes. Please sign in as a Recruiter or Org Admin.'
                       : candidateFetchError === 'SESSION_EXPIRED'
-                      ? 'Your login session has expired. Please sign in to reload candidate profiles.'
+                      ? 'Your login session has expired or is invalid. Click Auto-Sync below if you are signed in on the Recruiter Portal, or sign in again.'
                       : candidateFetchError && candidateFetchError !== 'NO_CANDIDATES'
                       ? candidateFetchError
                       : 'No active bench candidates found in your agency roster. Upload or add candidates via the Recruiter Portal to start evaluating.'}
                   </div>
                   <div className="jdm-no-candidates-actions">
-                    <a
-                      href={`${frontendUrl}/recruiter-portal/candidates`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="jdm-btn-add-candidate"
-                    >
-                      <span>+</span>
-                      <span>Add Candidates in Portal</span>
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => fetchCandidates(token)}
-                      disabled={isLoadingCandidates}
-                      className="jdm-btn-refresh-candidate"
-                      title="Reload candidates from database"
-                    >
-                      {isLoadingCandidates ? 'Loading...' : '↻ Refresh'}
-                    </button>
+                    {candidateFetchError === 'SESSION_EXPIRED' ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleSyncPortal}
+                          disabled={isLoggingIn || isLoadingCandidates}
+                          className="jdm-btn-add-candidate"
+                          style={{
+                            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                            color: '#ffffff',
+                            fontWeight: 700,
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                          title="Instantly link login from your open Recruiter Portal browser tab"
+                        >
+                          <span>⚡</span>
+                          <span>{isLoggingIn ? 'Syncing...' : 'Auto-Sync Session'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLogout}
+                          className="jdm-btn-refresh-candidate"
+                          title="Sign in with email and password"
+                        >
+                          ↪ Sign In
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <a
+                          href={`${frontendUrl}/recruiter-portal/candidates`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="jdm-btn-add-candidate"
+                        >
+                          <span>+</span>
+                          <span>Add Candidates in Portal</span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={handleSmartRefresh}
+                          disabled={isLoadingCandidates}
+                          className="jdm-btn-refresh-candidate"
+                          title="Reload candidates from database"
+                        >
+                          {isLoadingCandidates ? 'Loading...' : '↻ Refresh'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -999,7 +1086,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                     className="jdm-text-input"
                     value={serverUrl}
                     onChange={(e) => setServerUrl(e.target.value)}
-                    placeholder="https://jdmatcher-api.onrender.com"
+                    placeholder="https://jdmatcher-be.onrender.com"
                     style={{ fontSize: '11px', marginBottom: '6px' }}
                   />
                   <label className="jdm-field-label" style={{ marginBottom: '4px' }}>Frontend App URL</label>
@@ -1011,7 +1098,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                       setFrontendUrl(e.target.value);
                       chrome.storage.local.set({ frontendUrl: e.target.value.trim().replace(/\/+$/, '') });
                     }}
-                    placeholder="https://jdmatcher-app.onrender.com"
+                    placeholder="https://jdmatcher-fe.onrender.com"
                     style={{ fontSize: '11px' }}
                   />
                   <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>

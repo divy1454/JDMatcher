@@ -24,6 +24,21 @@
     "service_worker": "dist/background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["dist/shadow.css", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "action": {
     "default_popup": "dist/popup.html",
     "default_title": "JDMatcher Enterprise",

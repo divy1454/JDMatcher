@@ -1,4 +1,4 @@
-const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com') ? 'https://jdmatcher-be.onrender.com/api' : 'http://localhost:4000/api');
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export class ApiError extends Error {

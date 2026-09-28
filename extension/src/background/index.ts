@@ -1,6 +1,6 @@
 import { StoredEvaluationState } from '../content/types.js';
 
-const API_BASE_URL = 'https://jdmatcher-api.onrender.com';
+const API_BASE_URL = 'https://jdmatcher-be.onrender.com';
 
 // Generate or retrieve persistent machine hardware ID for recruiter seat locking
 async function getOrCreateDeviceId(): Promise<string> {
@@ -78,16 +78,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function handleSyncFromPortal() {
-  const tabs = await chrome.tabs.query({
-    url: [
-      '*://localhost:*/*',
-      '*://127.0.0.1:*/*',
-      '*://*.onrender.com/*',
-    ],
-  });
+  let tabs: chrome.tabs.Tab[] = [];
+  try {
+    const allTabs = await chrome.tabs.query({});
+    tabs = allTabs.filter(
+      (t) =>
+        t.url &&
+        (t.url.includes('onrender.com') ||
+          t.url.includes('localhost') ||
+          t.url.includes('127.0.0.1') ||
+          t.url.includes('jdmatcher'))
+    );
+  } catch (_e) {
+    try {
+      tabs = await chrome.tabs.query({
+        url: [
+          '*://localhost:*/*',
+          '*://127.0.0.1:*/*',
+          '*://*.onrender.com/*',
+        ],
+      });
+    } catch (_err2) {}
+  }
 
   if (!tabs || tabs.length === 0) {
-    return { success: false, message: 'No recruiter portal tab is currently open.' };
+    return { success: false, message: 'No recruiter portal tab is currently open. Please open your portal and sign in.' };
   }
 
   for (const tab of tabs) {
@@ -112,7 +127,7 @@ async function handleSyncFromPortal() {
           : API_BASE_URL;
 
         const storage = await chrome.storage.local.get(['apiUrl']);
-        if (storage.apiUrl && !storage.apiUrl.includes('jdmatcher-be.onrender.com')) {
+        if (storage.apiUrl && !storage.apiUrl.includes('jd-matcher-pdm1') && !storage.apiUrl.includes('recruiter-portal') && !storage.apiUrl.includes('jdmatcher-fe')) {
           candidateApiUrl = storage.apiUrl;
         }
 
@@ -120,16 +135,31 @@ async function handleSyncFromPortal() {
         let userObj = null;
         let orgObj = null;
         try {
-          const res = await fetch(`${candidateApiUrl}/auth/me`, {
+          let res = await fetch(`${candidateApiUrl}/auth/me`, {
             headers: { Authorization: `Bearer ${token}` },
           });
+          if (!res.ok && res.status === 404) {
+            res = await fetch(`${candidateApiUrl}/api/auth/me`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          }
           if (res.ok) {
             const data = await res.json();
             userObj = data.user;
             orgObj = data.organization;
             userName = data.user?.fullName?.split(' ')[0] || data.user?.name || 'Recruiter';
+          } else {
+            console.log(`[JDMatcher] Token from ${origin} failed validation (status: ${res.status}). Skipping.`);
+            continue;
           }
-        } catch (_e) {}
+        } catch (_e) {
+          console.warn('[JDMatcher] Network error reaching auth/me for tab:', origin);
+          continue;
+        }
+
+        const effectiveFrontendUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
+          ? origin
+          : (origin.includes('jdmatcher-fe') ? origin : 'https://jdmatcher-fe.onrender.com');
 
         await chrome.storage.local.set({
           token,
@@ -137,7 +167,7 @@ async function handleSyncFromPortal() {
           currentUser: userObj,
           currentOrg: orgObj,
           apiUrl: candidateApiUrl,
-          frontendUrl: origin,
+          frontendUrl: effectiveFrontendUrl,
         });
 
         return {
@@ -166,7 +196,7 @@ async function handleEvaluation(payload: {
   const storage = await chrome.storage.local.get(['token', 'apiUrl', 'frontendUrl']);
   const token = storage.token;
   let rawUrl = storage.apiUrl;
-  if (!rawUrl || rawUrl.includes('jdmatcher-be.onrender.com')) {
+  if (!rawUrl || rawUrl.includes('jd-matcher-pdm1') || rawUrl.includes('recruiter-portal') || rawUrl.includes('jdmatcher-fe')) {
     rawUrl = storage.frontendUrl?.includes('localhost') || storage.frontendUrl?.includes('127.0.0.1')
       ? 'http://localhost:4000'
       : API_BASE_URL;
@@ -270,7 +300,7 @@ async function handleSaveApplied(payload: {
   const storage = await chrome.storage.local.get(['token', 'apiUrl', 'frontendUrl']);
   const token = storage.token;
   let rawUrl = storage.apiUrl;
-  if (!rawUrl || rawUrl.includes('jdmatcher-be.onrender.com')) {
+  if (!rawUrl || rawUrl.includes('jd-matcher-pdm1') || rawUrl.includes('recruiter-portal') || rawUrl.includes('jdmatcher-fe')) {
     rawUrl = storage.frontendUrl?.includes('localhost') || storage.frontendUrl?.includes('127.0.0.1')
       ? 'http://localhost:4000'
       : API_BASE_URL;

@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
           token: storedToken,
           user: data.user,
           organization: data.organization || null,
-          apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api',
+          apiUrl: process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com') ? 'https://jdmatcher-be.onrender.com/api' : 'http://localhost:4000/api'),
           frontendUrl: window.location.origin,
         }, '*');
       }
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
         token: newToken,
         user: newUser,
         organization: newOrg || null,
-        apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api',
+        apiUrl: process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com') ? 'https://jdmatcher-be.onrender.com/api' : 'http://localhost:4000/api'),
         frontendUrl: window.location.origin,
       }, '*');
     }
