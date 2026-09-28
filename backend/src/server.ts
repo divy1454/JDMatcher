@@ -53,7 +53,21 @@ export async function buildServer() {
     : true; // Allow all in development when no origins specified
 
   await app.register(cors, {
-    origin: corsOrigins,
+    origin: (origin, cb) => {
+      // Allow requests with no origin (curl, server-to-server, background service workers)
+      if (!origin) return cb(null, true);
+      // Always allow Chrome & browser extensions
+      if (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://')) {
+        return cb(null, true);
+      }
+      if (corsOrigins === true) return cb(null, true);
+      if (Array.isArray(corsOrigins)) {
+        if (corsOrigins.includes(origin) || corsOrigins.includes('*')) {
+          return cb(null, true);
+        }
+      }
+      cb(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'x-device-id', 'Accept'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

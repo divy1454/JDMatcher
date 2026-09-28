@@ -19,6 +19,11 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   // Candidates & Selection
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>('');
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState<boolean>(false);
+  const [candidateFetchError, setCandidateFetchError] = useState<string>('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const [candidateSearchQuery, setCandidateSearchQuery] = useState<string>('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // JD Inputs
   const [jdText, setJdText] = useState<string>('');
@@ -27,8 +32,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const [evalState, setEvalState] = useState<StoredEvaluationState>({ status: 'idle' });
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
-  const DEFAULT_API_URL = 'https://jdmatcher-be.onrender.com';
-  const DEFAULT_FRONTEND_URL = 'https://jdmatcher-fe.onrender.com';
+  const DEFAULT_API_URL = 'https://jdmatcher-api.onrender.com';
+  const DEFAULT_FRONTEND_URL = 'https://jdmatcher-app.onrender.com';
 
   const [frontendUrl, setFrontendUrl] = useState<string>(DEFAULT_FRONTEND_URL);
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_API_URL);
@@ -38,7 +43,12 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   const getApiUrl = async (): Promise<string> => {
     const data = await chrome.storage.local.get(['apiUrl', 'frontendUrl']);
-    if (data.apiUrl) return data.apiUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
+    if (data.apiUrl && typeof data.apiUrl === 'string' && data.apiUrl.trim()) {
+      const clean = data.apiUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
+      if (!clean.includes('jdmatcher-be.onrender.com')) {
+        return clean;
+      }
+    }
     if (data.frontendUrl?.includes('localhost') || data.frontendUrl?.includes('127.0.0.1')) {
       return 'http://localhost:4000';
     }
@@ -47,6 +57,21 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     }
     return DEFAULT_API_URL;
   };
+
+  // Close candidate dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDropdownOpen]);
 
   // 1. Initial State Restoration & Hardware Fingerprint Synchronization
   useEffect(() => {
@@ -57,19 +82,23 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
     chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl'], async (data) => {
       let activeApiUrl = data.apiUrl;
-      if (!activeApiUrl) {
+      if (!activeApiUrl || activeApiUrl.includes('jdmatcher-be.onrender.com')) {
         if (data.frontendUrl?.includes('localhost') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
           activeApiUrl = 'http://localhost:4000';
-          await chrome.storage.local.set({ apiUrl: 'http://localhost:4000' });
         } else {
           activeApiUrl = DEFAULT_API_URL;
         }
+        await chrome.storage.local.set({ apiUrl: activeApiUrl });
       }
       setServerUrl(activeApiUrl);
 
-      if (data.frontendUrl) {
-        setFrontendUrl(data.frontendUrl);
+      let activeFrontendUrl = data.frontendUrl;
+      if (!activeFrontendUrl || activeFrontendUrl.includes('jdmatcher-fe.onrender.com')) {
+        activeFrontendUrl = DEFAULT_FRONTEND_URL;
+        await chrome.storage.local.set({ frontendUrl: DEFAULT_FRONTEND_URL });
       }
+      setFrontendUrl(activeFrontendUrl);
+
       if (data.token) {
         setToken(data.token);
         if (data.userName) setUserName(data.userName);
@@ -126,21 +155,60 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   // Fetch Candidates for Recruiter's Agency (Recruiter isolation enforced by backend)
   const fetchCandidates = async (authToken: string) => {
+    if (!authToken) return;
+    setIsLoadingCandidates(true);
+    setCandidateFetchError('');
     try {
       const baseUrl = await getApiUrl();
-      const res = await fetch(`${baseUrl}/candidates`, {
+      let res = await fetch(`${baseUrl}/candidates`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      if (res.ok) {
-        const list: Candidate[] = await res.json();
-        setCandidates(list);
-        setSelectedCandidateId((prev) => {
-          if (prev && list.some((c) => c.id === prev)) return prev;
-          return list.length > 0 ? list[0].id : '';
+      if (res.status === 404) {
+        res = await fetch(`${baseUrl}/api/candidates`, {
+          headers: { Authorization: `Bearer ${authToken}` },
         });
       }
-    } catch (e) {
+
+      if (res.status === 401) {
+        setCandidateFetchError('SESSION_EXPIRED');
+        setCandidates([]);
+        return;
+      }
+
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.error === 'ZERO_KNOWLEDGE_VIOLATION') {
+          setCandidateFetchError('SUPER_ADMIN_RESTRICTED');
+        } else {
+          setCandidateFetchError(errJson.message || 'Access restricted for current account.');
+        }
+        setCandidates([]);
+        return;
+      }
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        setCandidateFetchError(errJson.message || `Failed to fetch candidates (Status ${res.status})`);
+        setCandidates([]);
+        return;
+      }
+
+      const list: Candidate[] = await res.json();
+      const validList = Array.isArray(list) ? list : [];
+      setCandidates(validList);
+      if (validList.length === 0) {
+        setCandidateFetchError('NO_CANDIDATES');
+      }
+      setSelectedCandidateId((prev) => {
+        if (prev && validList.some((c) => c.id === prev)) return prev;
+        return validList.length > 0 ? validList[0].id : '';
+      });
+    } catch (e: any) {
       console.error('Failed to fetch candidates:', e);
+      setCandidateFetchError(e.message || 'Network connection failed. Verify backend is running.');
+      setCandidates([]);
+    } finally {
+      setIsLoadingCandidates(false);
     }
   };
 
@@ -491,7 +559,17 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
         .join('')
         .slice(0, 2)
         .toUpperCase()
-    : 'BS';
+    : 'JD';
+
+  const filteredCandidates = candidates.filter((c) => {
+    if (!candidateSearchQuery.trim()) return true;
+    const q = candidateSearchQuery.toLowerCase().trim();
+    return (
+      c.fullName.toLowerCase().includes(q) ||
+      (c.primaryTitle && c.primaryTitle.toLowerCase().includes(q)) ||
+      (c.recruiterName && c.recruiterName.toLowerCase().includes(q))
+    );
+  });
 
   const evalResult = evalState.result;
   const isApply = (evalResult?.verdict || '').toUpperCase() === 'APPLY';
@@ -606,41 +684,209 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
         {token && (
           <>
-            {/* Active Bench Candidate Card */}
+            {/* Active Bench Candidate Section */}
             <div className="jdm-candidate-section">
               <div className="jdm-candidate-header">
                 <span className="jdm-candidate-label">ACTIVE BENCH CANDIDATE</span>
-                <span className="jdm-resume-active-badge">✓ RESUME ACTIVE</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => fetchCandidates(token)}
+                    disabled={isLoadingCandidates}
+                    className={`jdm-refresh-icon-btn ${isLoadingCandidates ? 'is-spinning' : ''}`}
+                    title="Refresh Candidate Roster"
+                  >
+                    ↻
+                  </button>
+                  {candidates.length > 0 && (
+                    <span className="jdm-resume-active-badge">✓ RESUME ACTIVE</span>
+                  )}
+                </div>
               </div>
 
-              <div className="jdm-candidate-card">
-                <div className="jdm-candidate-card-left">
-                  <div className="jdm-candidate-avatar">{initials}</div>
-                  <div className="jdm-candidate-info">
-                    <div className="jdm-candidate-name">
-                      {selectedCandidate ? selectedCandidate.fullName : 'Select Candidate'}
+              {isLoadingCandidates && candidates.length === 0 ? (
+                <div className="jdm-candidate-card" style={{ cursor: 'wait' }}>
+                  <div className="jdm-candidate-card-left">
+                    <div className="jdm-candidate-avatar" style={{ background: '#334155' }}>
+                      <span className="jdm-spinner" style={{ width: '16px', height: '16px' }} />
                     </div>
-                    <div className="jdm-candidate-title">
-                      {selectedCandidate ? selectedCandidate.primaryTitle : 'No Candidate Selected'}
+                    <div className="jdm-candidate-info">
+                      <div className="jdm-candidate-name">Loading Candidates...</div>
+                      <div className="jdm-candidate-title">Connecting to agency talent roster</div>
                     </div>
                   </div>
                 </div>
-                <div className="jdm-candidate-caret">▾</div>
+              ) : candidates.length === 0 ? (
+                /* Enhanced Empty State Card when no candidates exist */
+                <div className="jdm-no-candidates-card">
+                  <div className="jdm-no-candidates-icon-wrap">
+                    <span className="jdm-no-candidates-icon">👥</span>
+                  </div>
+                  <div className="jdm-no-candidates-title">No Candidates Found</div>
+                  <div className="jdm-no-candidates-desc">
+                    {candidateFetchError === 'SUPER_ADMIN_RESTRICTED'
+                      ? 'You are signed in as Super Admin. Super Admins are restricted from viewing candidate talent resumes. Please sign in as a Recruiter or Org Admin.'
+                      : candidateFetchError === 'SESSION_EXPIRED'
+                      ? 'Your login session has expired. Please sign in to reload candidate profiles.'
+                      : candidateFetchError && candidateFetchError !== 'NO_CANDIDATES'
+                      ? candidateFetchError
+                      : 'No active bench candidates found in your agency roster. Upload or add candidates via the Recruiter Portal to start evaluating.'}
+                  </div>
+                  <div className="jdm-no-candidates-actions">
+                    <a
+                      href={`${frontendUrl}/recruiter-portal/candidates`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="jdm-btn-add-candidate"
+                    >
+                      <span>+</span>
+                      <span>Add Candidates in Portal</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => fetchCandidates(token)}
+                      disabled={isLoadingCandidates}
+                      className="jdm-btn-refresh-candidate"
+                      title="Reload candidates from database"
+                    >
+                      {isLoadingCandidates ? 'Loading...' : '↻ Refresh'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Enhanced Custom Dropdown Trigger & Popover */
+                <div className="jdm-dropdown-container" ref={dropdownRef}>
+                  <div
+                    className={`jdm-candidate-card ${isDropdownOpen ? 'is-open' : ''}`}
+                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    role="button"
+                    tabIndex={0}
+                    title="Click to switch candidate profile"
+                  >
+                    <div className="jdm-candidate-card-left">
+                      <div className="jdm-candidate-avatar">{initials}</div>
+                      <div className="jdm-candidate-info">
+                        <div className="jdm-candidate-name">
+                          {selectedCandidate ? selectedCandidate.fullName : 'Select Candidate'}
+                        </div>
+                        <div className="jdm-candidate-title">
+                          {selectedCandidate ? selectedCandidate.primaryTitle : 'No Candidate Selected'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="jdm-candidate-caret-wrap">
+                      <span className={`jdm-candidate-caret ${isDropdownOpen ? 'is-rotated' : ''}`}>
+                        ▾
+                      </span>
+                    </div>
+                  </div>
 
-                {/* Candidate switching dropdown */}
-                <select
-                  className="jdm-candidate-select-overlay"
-                  value={selectedCandidate?.id || ''}
-                  onChange={(e) => setSelectedCandidateId(e.target.value)}
-                  title="Select Bench Candidate"
-                >
-                  {candidates.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.fullName} — {c.primaryTitle}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  {/* Floating Custom Dropdown Menu */}
+                  {isDropdownOpen && (
+                    <div className="jdm-candidate-dropdown-menu">
+                      <div className="jdm-dropdown-header">
+                        <span className="jdm-dropdown-header-title">Switch Bench Profile</span>
+                        <span className="jdm-dropdown-count-badge">
+                          {filteredCandidates.length} of {candidates.length} Profiles
+                        </span>
+                      </div>
+
+                      {/* Search Bar for Quick Filtering */}
+                      {candidates.length > 2 && (
+                        <div className="jdm-dropdown-search-wrap">
+                          <span className="jdm-dropdown-search-icon">🔍</span>
+                          <input
+                            type="text"
+                            className="jdm-dropdown-search-input"
+                            value={candidateSearchQuery}
+                            onChange={(e) => setCandidateSearchQuery(e.target.value)}
+                            placeholder="Filter by name or title..."
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          {candidateSearchQuery && (
+                            <button
+                              type="button"
+                              className="jdm-dropdown-search-clear"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCandidateSearchQuery('');
+                              }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Candidate Options List */}
+                      <div className="jdm-dropdown-list">
+                        {filteredCandidates.length === 0 ? (
+                          <div className="jdm-dropdown-empty">
+                            No profiles match "{candidateSearchQuery}"
+                          </div>
+                        ) : (
+                          filteredCandidates.map((c) => {
+                            const isSelected = c.id === (selectedCandidate?.id || '');
+                            const optInitials = c.fullName
+                              .split(' ')
+                              .map((n) => n[0])
+                              .slice(0, 2)
+                              .join('')
+                              .toUpperCase();
+
+                            return (
+                              <div
+                                key={c.id}
+                                className={`jdm-candidate-option ${isSelected ? 'is-selected' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedCandidateId(c.id);
+                                  setIsDropdownOpen(false);
+                                  setCandidateSearchQuery('');
+                                }}
+                              >
+                                <div className="jdm-candidate-option-left">
+                                  <div className="jdm-candidate-option-avatar">
+                                    {optInitials}
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div className="jdm-candidate-option-name">{c.fullName}</div>
+                                    <div className="jdm-candidate-option-title">{c.primaryTitle}</div>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  {c.recruiterName && (
+                                    <span className="jdm-candidate-option-badge" title={`Added by ${c.recruiterName}`}>
+                                      {c.recruiterName.split(' ')[0]}
+                                    </span>
+                                  )}
+                                  {isSelected && (
+                                    <span className="jdm-candidate-option-check">✓</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      {/* Dropdown Footer */}
+                      <div className="jdm-dropdown-footer">
+                        <a
+                          href={`${frontendUrl}/recruiter-portal/candidates`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="jdm-dropdown-footer-link"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span>+ Manage / Add candidates in Portal →</span>
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Quota Bar */}
@@ -854,12 +1100,27 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             <button
               className="jdm-evaluate-btn"
               onClick={handleEvaluate}
-              disabled={evalState.status === 'loading' || evalState.status === 'locked_402'}
+              disabled={
+                evalState.status === 'loading' ||
+                evalState.status === 'locked_402' ||
+                candidates.length === 0 ||
+                !selectedCandidateId
+              }
+              title={
+                candidates.length === 0
+                  ? 'Please add candidates in the Recruiter Portal before evaluating'
+                  : 'Evaluate Candidate Against JD'
+              }
             >
               {evalState.status === 'loading' ? (
                 <>
                   <div className="jdm-spinner" />
                   <span>Evaluating Candidate Against JD...</span>
+                </>
+              ) : candidates.length === 0 ? (
+                <>
+                  <span>⚠️</span>
+                  <span>No Candidates Available to Match</span>
                 </>
               ) : (
                 <>

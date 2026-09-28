@@ -1,6 +1,6 @@
 import { StoredEvaluationState } from '../content/types.js';
 
-const API_BASE_URL = 'https://jdmatcher-be.onrender.com';
+const API_BASE_URL = 'https://jdmatcher-api.onrender.com';
 
 // Generate or retrieve persistent machine hardware ID for recruiter seat locking
 async function getOrCreateDeviceId(): Promise<string> {
@@ -112,7 +112,7 @@ async function handleSyncFromPortal() {
           : API_BASE_URL;
 
         const storage = await chrome.storage.local.get(['apiUrl']);
-        if (storage.apiUrl) {
+        if (storage.apiUrl && !storage.apiUrl.includes('jdmatcher-be.onrender.com')) {
           candidateApiUrl = storage.apiUrl;
         }
 
@@ -166,7 +166,7 @@ async function handleEvaluation(payload: {
   const storage = await chrome.storage.local.get(['token', 'apiUrl', 'frontendUrl']);
   const token = storage.token;
   let rawUrl = storage.apiUrl;
-  if (!rawUrl) {
+  if (!rawUrl || rawUrl.includes('jdmatcher-be.onrender.com')) {
     rawUrl = storage.frontendUrl?.includes('localhost') || storage.frontendUrl?.includes('127.0.0.1')
       ? 'http://localhost:4000'
       : API_BASE_URL;
@@ -270,7 +270,7 @@ async function handleSaveApplied(payload: {
   const storage = await chrome.storage.local.get(['token', 'apiUrl', 'frontendUrl']);
   const token = storage.token;
   let rawUrl = storage.apiUrl;
-  if (!rawUrl) {
+  if (!rawUrl || rawUrl.includes('jdmatcher-be.onrender.com')) {
     rawUrl = storage.frontendUrl?.includes('localhost') || storage.frontendUrl?.includes('127.0.0.1')
       ? 'http://localhost:4000'
       : API_BASE_URL;
