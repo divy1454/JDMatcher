@@ -1,6 +1,6 @@
 import { StoredEvaluationState } from '../content/types.js';
 
-const API_BASE_URL = 'http://localhost:4000/api';
+const API_BASE_URL = 'https://jdmatcher-be.onrender.com';
 
 // Generate or retrieve persistent machine hardware ID for recruiter seat locking
 async function getOrCreateDeviceId(): Promise<string> {
@@ -80,7 +80,8 @@ async function handleEvaluation(payload: {
   const deviceId = await getOrCreateDeviceId();
   const storage = await chrome.storage.local.get(['token', 'apiUrl']);
   const token = storage.token;
-  const baseUrl = storage.apiUrl || API_BASE_URL;
+  const rawUrl = storage.apiUrl || API_BASE_URL;
+  const baseUrl = rawUrl.trim().replace(/\/+$/, '');
 
   // Persist loading state so reopening widget restores progress
   const loadingState: StoredEvaluationState = {
@@ -178,7 +179,8 @@ async function handleSaveApplied(payload: {
   const deviceId = await getOrCreateDeviceId();
   const storage = await chrome.storage.local.get(['token', 'apiUrl']);
   const token = storage.token;
-  const baseUrl = storage.apiUrl || API_BASE_URL;
+  const rawUrl = storage.apiUrl || API_BASE_URL;
+  const baseUrl = rawUrl.trim().replace(/\/+$/, '');
 
   const response = await fetch(`${baseUrl}/analyze/save-applied`, {
     method: 'POST',

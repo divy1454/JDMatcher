@@ -27,13 +27,19 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const [evalState, setEvalState] = useState<StoredEvaluationState>({ status: 'idle' });
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
-  const [frontendUrl, setFrontendUrl] = useState<string>('http://localhost:3000');
+  const DEFAULT_API_URL = 'https://jdmatcher-be.onrender.com';
+  const DEFAULT_FRONTEND_URL = 'https://jdmatcher-fe.onrender.com';
+
+  const [frontendUrl, setFrontendUrl] = useState<string>(DEFAULT_FRONTEND_URL);
+  const [serverUrl, setServerUrl] = useState<string>(DEFAULT_API_URL);
+  const [showServerConfig, setShowServerConfig] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   const getApiUrl = async (): Promise<string> => {
     const data = await chrome.storage.local.get(['apiUrl']);
-    return data.apiUrl || 'http://localhost:4000/api';
+    const raw = data.apiUrl || DEFAULT_API_URL;
+    return raw.trim().replace(/\/+$/, '');
   };
 
   // 1. Initial State Restoration & Hardware Fingerprint Synchronization
@@ -43,7 +49,10 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       chrome.storage.local.set({ deviceId: fp });
     });
 
-    chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl'], (data) => {
+    chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl'], (data) => {
+      if (data.apiUrl) {
+        setServerUrl(data.apiUrl);
+      }
       if (data.frontendUrl) {
         setFrontendUrl(data.frontendUrl);
       }
@@ -106,7 +115,13 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     setLoginError('');
 
     try {
-      const baseUrl = await getApiUrl();
+      let baseUrl = await getApiUrl();
+      if (serverUrl && serverUrl.trim()) {
+        const cleaned = serverUrl.trim().replace(/\/+$/, '');
+        baseUrl = cleaned;
+        await chrome.storage.local.set({ apiUrl: cleaned });
+      }
+
       let deviceData = await chrome.storage.local.get(['deviceId']);
       let deviceId = deviceData.deviceId;
       if (!deviceId) {
@@ -580,6 +595,57 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 required
               />
             </div>
+
+            <div style={{ marginTop: '2px', marginBottom: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setShowServerConfig(!showServerConfig)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#6366f1',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                ⚙ {showServerConfig ? 'Hide Server Configuration' : 'Server Connection (Render / Production)'}
+              </button>
+
+              {showServerConfig && (
+                <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '6px' }}>
+                  <label className="jdm-field-label" style={{ marginBottom: '4px' }}>Backend API URL</label>
+                  <input
+                    type="url"
+                    className="jdm-text-input"
+                    value={serverUrl}
+                    onChange={(e) => setServerUrl(e.target.value)}
+                    placeholder="https://jdmatcher-api.onrender.com"
+                    style={{ fontSize: '11px', marginBottom: '6px' }}
+                  />
+                  <label className="jdm-field-label" style={{ marginBottom: '4px' }}>Frontend App URL</label>
+                  <input
+                    type="url"
+                    className="jdm-text-input"
+                    value={frontendUrl}
+                    onChange={(e) => {
+                      setFrontendUrl(e.target.value);
+                      chrome.storage.local.set({ frontendUrl: e.target.value.trim().replace(/\/+$/, '') });
+                    }}
+                    placeholder="https://jdmatcher-app.onrender.com"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                    Tip: Enter your live Render backend URL above.
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button type="submit" className="jdm-btn-submit" disabled={isLoggingIn}>
               {isLoggingIn ? 'Verifying Hardware Lock...' : 'Sign In & Access Bench'}
             </button>
