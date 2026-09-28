@@ -1,0 +1,19 @@
+{
+  "name": "jdmatcher-enterprise",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JDMatcher Enterprise - High Performance B2B SaaS for US IT Bench Sales Recruiters",
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:extension": "npm --prefix extension run build",
+    "db:generate": "npm --prefix backend run db:generate",
+    "db:migrate": "npm --prefix backend run db:migrate",
+    "db:seed": "npm --prefix backend run db:seed"
+  },
+  "keywords": ["recruiting", "ai", "bench-sales", "fastify", "nextjs", "drizzle", "mv3"],
+  "author": "JDMatcher Enterprise",
+  "license": "UNLICENSED"
+}

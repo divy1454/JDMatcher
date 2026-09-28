@@ -1,0 +1,910 @@
+:host {
+  all: initial;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #0f172a;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* 1. Main Static Popup Container (Anchored directly beneath Chrome extension toolbar icon) */
+.jdm-popup-window {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  width: 440px;
+  max-height: calc(100vh - 24px);
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  border-radius: 16px;
+  border: 1px solid rgba(30, 41, 59, 0.25);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  font-size: 13px;
+  animation: jdmSlideDown 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes jdmSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 2. Top Dark Section (Header, Active Candidate, Quota Bar) */
+.jdm-top-dark-section {
+  background: #0b1329;
+  color: #ffffff;
+  padding: 14px 16px 14px;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jdm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jdm-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jdm-avatar-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3);
+}
+
+.jdm-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jdm-app-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.jdm-pro-badge {
+  font-size: 9px;
+  font-weight: 800;
+  background: #4338ca;
+  color: #e0e7ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jdm-subtext {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+.jdm-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jdm-user-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #172033;
+  border: 1px solid #334155;
+  border-radius: 9999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #e2e8f0;
+  font-weight: 500;
+}
+
+.jdm-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.jdm-user-icon {
+  font-size: 11px;
+  color: #c084fc;
+}
+
+.jdm-icon-btn {
+  background: #172033;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  min-width: 28px;
+  height: 28px;
+}
+
+.jdm-icon-btn:hover {
+  background: #1e293b;
+  color: #ffffff;
+  border-color: #475569;
+}
+
+/* Active Bench Candidate Card */
+.jdm-candidate-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jdm-candidate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jdm-candidate-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.jdm-resume-active-badge {
+  background: rgba(6, 78, 59, 0.7);
+  border: 1px solid #059669;
+  color: #34d399;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jdm-candidate-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #172033;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 10px 12px;
+  transition: border-color 0.15s ease;
+}
+
+.jdm-candidate-card:hover {
+  border-color: #475569;
+}
+
+.jdm-candidate-card-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.jdm-candidate-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #6366f1;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.jdm-candidate-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.jdm-candidate-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.jdm-candidate-title {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jdm-candidate-caret {
+  color: #94a3b8;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.jdm-candidate-select-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Quota Bar */
+.jdm-quota-bar {
+  background: #131c33;
+  border: 1px solid #1e3a8a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+}
+
+.jdm-quota-left {
+  color: #60a5fa;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jdm-quota-right {
+  color: #818cf8;
+  font-weight: 600;
+}
+
+/* 3. Popup Content Body (Light Theme) */
+.jdm-popup-content {
+  padding: 14px 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 230px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #f8fafc;
+}
+
+/* Settings & Matched JDs Card */
+.jdm-settings-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+
+.jdm-settings-card:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.jdm-settings-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.jdm-settings-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.jdm-settings-sub {
+  font-size: 11px;
+  color: #4f46e5;
+  margin-top: 1px;
+}
+
+/* Job Description Card */
+.jdm-jd-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jdm-jd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jdm-jd-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jdm-sparkle {
+  color: #f59e0b;
+  font-size: 13px;
+}
+
+.jdm-jd-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jdm-btn-action {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.jdm-btn-action:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.jdm-btn-paste {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #4f46e5;
+}
+
+.jdm-btn-paste:hover {
+  background: #e0e7ff;
+}
+
+.jdm-textarea-wrap {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  transition: border-color 0.15s ease;
+}
+
+.jdm-textarea-wrap:focus-within {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.jdm-jd-textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #0f172a;
+  resize: vertical;
+  min-height: 95px;
+  outline: none;
+  font-family: inherit;
+}
+
+.jdm-textarea-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.jdm-footer-tag {
+  color: #0284c7;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jdm-char-count {
+  color: #94a3b8;
+}
+
+/* Primary Evaluate CTA Button */
+.jdm-evaluate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: none;
+  background: #3730a3;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(55, 48, 163, 0.35);
+  transition: all 0.15s ease;
+}
+
+.jdm-evaluate-btn:hover:not(:disabled) {
+  background: #312e81;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(55, 48, 163, 0.45);
+}
+
+.jdm-evaluate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.jdm-bolt {
+  font-size: 14px;
+  color: #fbbf24;
+}
+
+/* 4. Evaluation Results Components (Exact Match to Image 1 & 2) */
+.jdm-results-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: jdmSlideDown 0.2s ease-out;
+}
+
+/* Verdict Top Banner (Red for SKIP, Green for APPLY) */
+.jdm-verdict-banner-skip {
+  background: linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%);
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(185, 28, 28, 0.25);
+}
+
+.jdm-verdict-banner-apply {
+  background: linear-gradient(135deg, #059669 0%, #065f46 100%);
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+}
+
+.jdm-verdict-banner-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jdm-verdict-main-text {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jdm-match-tier-badge {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+}
+
+.jdm-verdict-job-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 6px;
+  color: #ffffff;
+  line-height: 1.35;
+}
+
+/* Card 1: 1. ELIGIBILITY VERIFICATION */
+.jdm-eligibility-card {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-left: 4px solid #16a34a;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.jdm-eligibility-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jdm-eligibility-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jdm-shield-icon {
+  font-size: 13px;
+  color: #0284c7;
+}
+
+.jdm-badge-passed {
+  background: #10b981;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2.5px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jdm-badge-disqualified {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2.5px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jdm-eligibility-body {
+  font-size: 12px;
+  color: #1e293b;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* Card 2: DECISION JUSTIFICATION */
+.jdm-justification-card {
+  background: #f0f4ff;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.jdm-justification-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #3b82f6;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jdm-justification-body {
+  font-size: 12.5px;
+  color: #1e293b;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+/* Card 3: CANDIDATE STACK MATRIX */
+.jdm-matrix-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.jdm-matrix-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #475569;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jdm-matrix-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.jdm-matrix-col-aligned {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jdm-matrix-col-gaps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jdm-matrix-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.jdm-aligned-title {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #15803d;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jdm-gaps-title {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #b91c1c;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jdm-aligned-count {
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 9999px;
+}
+
+.jdm-gaps-count {
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 9999px;
+}
+
+.jdm-item-aligned {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 7px 9px;
+  border-radius: 6px;
+}
+
+.jdm-item-gap {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 7px 9px;
+  border-radius: 6px;
+}
+
+/* Card 4: STRATEGIC PLACEMENT NOTES */
+.jdm-notes-card {
+  background: #fffbeb;
+  border: 1px solid #fef08a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.jdm-notes-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #b45309;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jdm-notes-body {
+  font-size: 12px;
+  color: #78350f;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+/* Card 5: Bottom Decision Buttons (Applied / Not Applied) */
+.jdm-decision-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.jdm-btn-applied {
+  background: #059669;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  flex: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+  transition: all 0.15s ease;
+}
+
+.jdm-btn-applied:hover {
+  background: #047857;
+}
+
+.jdm-btn-applied:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.jdm-btn-not-applied {
+  background: #ffffff;
+  color: #dc2626;
+  border: 1.5px solid #ef4444;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  flex: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.jdm-btn-not-applied:hover {
+  background: #fef2f2;
+}
+
+/* Login Box */
+.jdm-login-box {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jdm-field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 3px;
+}
+
+.jdm-text-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+}
+
+.jdm-text-input:focus {
+  border-color: #6366f1;
+}
+
+.jdm-btn-submit {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: #0f172a;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+/* Spinner & Alerts */
+.jdm-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: jdmSpin 0.7s linear infinite;
+}
+
+@keyframes jdmSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.jdm-error-alert {
+  padding: 8px 12px;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 8px;
+  font-size: 11.5px;
+  border: 1px solid #fca5a5;
+}
+
+.jdm-success-alert {
+  padding: 8px 12px;
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #a7f3d0;
+}

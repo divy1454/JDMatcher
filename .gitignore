@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+backend/dist/
+frontend/.next/
+frontend/out/
+extension/dist/
+
+# Environment variables (NEVER commit secrets)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Render
+.render/

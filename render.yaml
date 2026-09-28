@@ -1,0 +1,48 @@
+# Render Blueprint — JDMatcher Enterprise
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Service 1: Fastify Backend API
+  - type: web
+    name: jdmatcher-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build && npm run db:sync
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: SUPER_ADMIN_EMAIL
+        value: admin@jdmatcher.internal
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: SUPER_ADMIN_NAME
+        value: Platform Super Admin
+
+  # Service 2: Next.js Frontend Dashboard
+  - type: web
+    name: jdmatcher-app
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
