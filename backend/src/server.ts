@@ -68,23 +68,36 @@ export async function buildServer() {
   });
 
   // System Health Check
-  app.get('/api/health', async () => {
-    return {
-      status: 'healthy',
-      service: 'JDMatcher Enterprise Backend API',
-      timestamp: new Date().toISOString(),
-      uptime: Math.floor(process.uptime()),
-    };
+  const healthHandler = async () => ({
+    status: 'healthy',
+    service: 'JDMatcher Enterprise Backend API',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
   });
+  app.get('/api/health', healthHandler);
+  app.get('/health', healthHandler);
 
-  // API Routes
+  // API Routes - Registered under both /api/* and root /* for universal compatibility
   await app.register(authRoutes, { prefix: '/api/auth' });
+  await app.register(authRoutes, { prefix: '/auth' });
+
   await app.register(analyzeRoutes, { prefix: '/api/analyze' });
+  await app.register(analyzeRoutes, { prefix: '/analyze' });
+
   await app.register(orgsRoutes, { prefix: '/api/orgs' });
+  await app.register(orgsRoutes, { prefix: '/orgs' });
+
   await app.register(candidatesRoutes, { prefix: '/api/candidates' });
+  await app.register(candidatesRoutes, { prefix: '/candidates' });
+
   await app.register(recruitersRoutes, { prefix: '/api/recruiters' });
+  await app.register(recruitersRoutes, { prefix: '/recruiters' });
+
   await app.register(promptSettingsRoutes, { prefix: '/api/prompt-settings' });
+  await app.register(promptSettingsRoutes, { prefix: '/prompt-settings' });
+
   await app.register(telemetryRoutes, { prefix: '/api/telemetry' });
+  await app.register(telemetryRoutes, { prefix: '/telemetry' });
 
   return app;
 }
