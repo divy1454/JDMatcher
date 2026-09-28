@@ -7,7 +7,10 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs"
+    "tabs",
+    "clipboardRead",
+    "clipboardWrite",
+    "offscreen"
   ],
   "host_permissions": [
     "http://localhost:4000/*",
@@ -35,7 +38,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["dist/shadow.css", "icons/*"],
+      "resources": ["dist/shadow.css", "icons/*", "dist/offscreen.html", "dist/offscreen.js", "offscreen.html", "offscreen.js"],
       "matches": ["<all_urls>"]
     }
   ],

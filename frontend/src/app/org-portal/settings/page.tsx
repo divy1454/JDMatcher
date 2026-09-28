@@ -75,7 +75,7 @@ export default function OrgEvaluationSettingsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Evaluation Prompt Settings</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Tailor the Gemini 3.5 Flash-Lite evaluation instructions to align with your agency's client contracts and placement standards.
+            Tailor the Gemini 3.8 Flash evaluation instructions to align with your agency's client contracts and placement standards.
           </p>
         </div>
 
@@ -121,14 +121,12 @@ export default function OrgEvaluationSettingsPage() {
           <button
             type="button"
             onClick={() => setUseCustom(!useCustom)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              useCustom ? 'bg-violet-600' : 'bg-slate-800'
-            }`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${useCustom ? 'bg-violet-600' : 'bg-slate-800'
+              }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                useCustom ? 'translate-x-6' : 'translate-x-1'
-              }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${useCustom ? 'translate-x-6' : 'translate-x-1'
+                }`}
             />
           </button>
         </div>
@@ -181,11 +179,10 @@ export default function OrgEvaluationSettingsPage() {
           disabled={!useCustom}
           value={useCustom ? customPrompt : fallbackPrompt}
           onChange={(e) => setCustomPrompt(e.target.value)}
-          className={`w-full rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-200 outline-none transition ${
-            useCustom
+          className={`w-full rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-200 outline-none transition ${useCustom
               ? 'focus:border-violet-500 focus:ring-1 focus:ring-violet-500'
               : 'opacity-60 cursor-not-allowed'
-          }`}
+            }`}
           placeholder="Custom evaluation prompt template..."
         />
       </div>

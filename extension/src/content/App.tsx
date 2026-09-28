@@ -27,6 +27,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   // JD Inputs
   const [jdText, setJdText] = useState<string>('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Evaluation & Storage State
   const [evalState, setEvalState] = useState<StoredEvaluationState>({ status: 'idle' });
@@ -116,7 +117,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
               fetchCandidates(res.token);
             }
           });
-        } catch (_e) {}
+        } catch (_e) { }
       }
       if (data.evaluationState) {
         setEvalState(data.evaluationState);
@@ -188,7 +189,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             await fetchCandidates(syncRes.token);
             return;
           }
-        } catch (_syncErr) {}
+        } catch (_syncErr) { }
 
         // Token is genuinely expired and no fresh portal session exists: reset token so login form appears!
         await chrome.storage.local.remove(['token', 'userName']);
@@ -253,7 +254,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
         await fetchCandidates(syncRes.token);
         return;
       }
-    } catch (_e) {}
+    } catch (_e) { }
 
     if (token) {
       await fetchCandidates(token);
@@ -348,18 +349,50 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     setCandidates([]);
   };
 
-  // Paste last copied clipboard text directly into textarea
+  // Paste clipboard text directly into textarea without permission prompts
   const handlePasteClipboard = async () => {
+    // Strategy 1: Try reading via extension background offscreen document (extension origin - never prompts for site permission)
+    try {
+      const bgRes = await new Promise<{ success: boolean; text?: string }>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'READ_CLIPBOARD' }, (res) => {
+          if (chrome.runtime.lastError || !res || !res.success) {
+            resolve({ success: false });
+          } else {
+            resolve(res);
+          }
+        });
+      });
+
+      if (bgRes && bgRes.success && bgRes.text && bgRes.text.trim().length > 0) {
+        setJdText(bgRes.text.trim());
+        return;
+      }
+    } catch (_e) {}
+
+    // Strategy 2: Direct navigator.clipboard.readText() (granted silently when in extension popup / context with clipboardRead)
     try {
       const text = await navigator.clipboard.readText();
       if (text && text.trim().length > 0) {
         setJdText(text.trim());
-      } else {
-        alert('Clipboard is empty or does not contain text. Copy a JD first!');
+        return;
       }
-    } catch (_err) {
-      alert('Clipboard access denied. Please click inside the text area and press Ctrl+V / Cmd+V.');
-    }
+    } catch (_err) {}
+
+    // Strategy 3: Focus textarea and trigger document.execCommand('paste')
+    try {
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.focus();
+        textarea.select();
+        const success = document.execCommand('paste');
+        if (success && textarea.value && textarea.value.trim().length > 0) {
+          setJdText(textarea.value.trim());
+          return;
+        }
+      }
+    } catch (_e3) {}
+
+    alert('Clipboard is empty or does not contain text. Copy a JD first!');
   };
 
   // Clear text
@@ -393,7 +426,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
           derivedJobTitle = activeTab.title.split('-')[0].trim();
         }
       }
-    } catch (_e) {}
+    } catch (_e) { }
 
     if (!derivedJobTitle) {
       derivedJobTitle = selectedCandidate ? `${selectedCandidate.primaryTitle} Opportunity` : 'Software Opportunity';
@@ -552,7 +585,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (activeTab?.url) currentTabUrl = activeTab.url;
         }
-      } catch (_e) {}
+      } catch (_e) { }
 
       const response = await new Promise<any>((resolve) => {
         chrome.runtime.sendMessage(
@@ -607,11 +640,11 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const selectedCandidate = candidates.find((c) => c.id === selectedCandidateId) || candidates[0];
   const initials = selectedCandidate
     ? selectedCandidate.fullName
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase()
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase()
     : 'JD';
 
   const filteredCandidates = candidates.filter((c) => {
@@ -671,14 +704,14 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const alignedItems: string[] = Array.isArray(evalResult?.candidateFitCheck?.alignedSkills)
     ? evalResult.candidateFitCheck.alignedSkills
     : Array.isArray(evalResult?.keyStrengths)
-    ? evalResult.keyStrengths
-    : [];
+      ? evalResult.keyStrengths
+      : [];
 
   const missingItems: string[] = Array.isArray(evalResult?.candidateFitCheck?.gaps)
     ? evalResult.candidateFitCheck.gaps
     : Array.isArray(evalResult?.missingCriticalSkills)
-    ? evalResult.missingCriticalSkills
-    : [];
+      ? evalResult.missingCriticalSkills
+      : [];
 
   const naturalHighlights: string[] = Array.isArray(evalResult?.naturalFitHighlights)
     ? evalResult.naturalFitHighlights
@@ -703,7 +736,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 <span className="jdm-app-name">JD Matcher</span>
                 <span className="jdm-pro-badge">PRO</span>
               </div>
-              <div className="jdm-subtext">Bench Sales AI • Gemini 2.5 Flash</div>
+              <div className="jdm-subtext">Bench Sales AI • Gemini 3.8 Flash</div>
             </div>
           </div>
 
@@ -782,10 +815,10 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                     {candidateFetchError === 'SUPER_ADMIN_RESTRICTED'
                       ? 'You are signed in as Super Admin. Super Admins are restricted from viewing candidate talent resumes. Please sign in as a Recruiter or Org Admin.'
                       : candidateFetchError === 'SESSION_EXPIRED'
-                      ? 'Your login session has expired or is invalid. Click Auto-Sync below if you are signed in on the Recruiter Portal, or sign in again.'
-                      : candidateFetchError && candidateFetchError !== 'NO_CANDIDATES'
-                      ? candidateFetchError
-                      : 'No active bench candidates found in your agency roster. Upload or add candidates via the Recruiter Portal to start evaluating.'}
+                        ? 'Your login session has expired or is invalid. Click Auto-Sync below if you are signed in on the Recruiter Portal, or sign in again.'
+                        : candidateFetchError && candidateFetchError !== 'NO_CANDIDATES'
+                          ? candidateFetchError
+                          : 'No active bench candidates found in your agency roster. Upload or add candidates via the Recruiter Portal to start evaluating.'}
                   </div>
                   <div className="jdm-no-candidates-actions">
                     {candidateFetchError === 'SESSION_EXPIRED' ? (
@@ -1170,6 +1203,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
               <div className="jdm-textarea-wrap">
                 <textarea
+                  ref={textareaRef}
                   className="jdm-jd-textarea"
                   value={jdText}
                   onChange={(e) => setJdText(e.target.value)}

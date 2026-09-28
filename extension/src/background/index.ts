@@ -75,7 +75,55 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((err) => sendResponse({ success: false, error: err.message }));
     return true;
   }
+
+  // Handle seamless clipboard read without website permission prompts
+  if (message.target === 'offscreen') {
+    return;
+  }
+
+  if (message.type === 'READ_CLIPBOARD') {
+    handleReadClipboard()
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
+
+async function handleReadClipboard(): Promise<{ success: boolean; text?: string; error?: string }> {
+  try {
+    let hasDoc = false;
+    if (chrome.offscreen && typeof chrome.offscreen.hasDocument === 'function') {
+      hasDoc = await chrome.offscreen.hasDocument();
+    } else if ((chrome.runtime as any).getContexts) {
+      const contexts = await (chrome.runtime as any).getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+      });
+      hasDoc = contexts && contexts.length > 0;
+    }
+
+    if (!hasDoc && chrome.offscreen && typeof chrome.offscreen.createDocument === 'function') {
+      const clipboardReason = (chrome.offscreen && (chrome.offscreen as any).Reason && (chrome.offscreen as any).Reason.CLIPBOARD)
+        ? (chrome.offscreen as any).Reason.CLIPBOARD
+        : 'CLIPBOARD';
+
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: [clipboardReason],
+        justification: 'Read clipboard content on user paste action without prompting',
+      });
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'get-clipboard',
+    });
+
+    return { success: true, text: response?.text || '' };
+  } catch (err: any) {
+    console.warn('[JDMatcher] Offscreen clipboard read notice:', err);
+    return { success: false, error: err.message };
+  }
+}
 
 async function handleSyncFromPortal() {
   let tabs: chrome.tabs.Tab[] = [];
