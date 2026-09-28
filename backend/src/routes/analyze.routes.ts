@@ -44,14 +44,11 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const { candidateId, jdText } = parseResult.data;
       const user = request.user!;
 
-      // Candidate must belong to recruiter's organization and (for recruiters) be created by them
+      // Candidate must belong to recruiter's organization
       const candidateConditions = [
         eq(candidates.id, candidateId),
         eq(candidates.organizationId, user.organizationId!),
       ];
-      if (user.role === 'recruiter') {
-        candidateConditions.push(eq(candidates.createdByRecruiterId, user.id));
-      }
 
       const [candidate] = await db
         .select()
@@ -130,14 +127,11 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const user = request.user!;
       const data = parseResult.data;
 
-      // Candidate must belong to recruiter's organization and (for recruiters) be created by them
+      // Candidate must belong to recruiter's organization
       const candidateConditions = [
         eq(candidates.id, data.candidateId),
         eq(candidates.organizationId, user.organizationId!),
       ];
-      if (user.role === 'recruiter') {
-        candidateConditions.push(eq(candidates.createdByRecruiterId, user.id));
-      }
 
       const [candidate] = await db
         .select({ id: candidates.id })

@@ -41,11 +41,10 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
       const limit = Math.min(Math.max(parseInt(query.limit || '50', 10) || 50, 1), 200);
       const offset = Math.max(parseInt(query.offset || '0', 10) || 0, 0);
 
-      const conditions = [eq(candidates.organizationId, user.organizationId!)];
-      // Recruiter isolation: Recruiters can only access candidates they added
-      if (user.role === 'recruiter') {
-        conditions.push(eq(candidates.createdByRecruiterId, user.id));
-      }
+      const conditions = [
+        eq(candidates.organizationId, user.organizationId!),
+        eq(candidates.isActive, true),
+      ];
 
       const list = await db
         .select({
@@ -90,9 +89,6 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
         eq(candidates.id, id),
         eq(candidates.organizationId, user.organizationId!),
       ];
-      if (user.role === 'recruiter') {
-        conditions.push(eq(candidates.createdByRecruiterId, user.id));
-      }
 
       const [candidate] = await db
         .select()

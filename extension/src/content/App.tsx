@@ -37,9 +37,15 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const getApiUrl = async (): Promise<string> => {
-    const data = await chrome.storage.local.get(['apiUrl']);
-    const raw = data.apiUrl || DEFAULT_API_URL;
-    return raw.trim().replace(/\/+$/, '');
+    const data = await chrome.storage.local.get(['apiUrl', 'frontendUrl']);
+    if (data.apiUrl) return data.apiUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
+    if (data.frontendUrl?.includes('localhost') || data.frontendUrl?.includes('127.0.0.1')) {
+      return 'http://localhost:4000';
+    }
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      return 'http://localhost:4000';
+    }
+    return DEFAULT_API_URL;
   };
 
   // 1. Initial State Restoration & Hardware Fingerprint Synchronization
@@ -49,10 +55,18 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       chrome.storage.local.set({ deviceId: fp });
     });
 
-    chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl'], (data) => {
-      if (data.apiUrl) {
-        setServerUrl(data.apiUrl);
+    chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl'], async (data) => {
+      let activeApiUrl = data.apiUrl;
+      if (!activeApiUrl) {
+        if (data.frontendUrl?.includes('localhost') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          activeApiUrl = 'http://localhost:4000';
+          await chrome.storage.local.set({ apiUrl: 'http://localhost:4000' });
+        } else {
+          activeApiUrl = DEFAULT_API_URL;
+        }
       }
+      setServerUrl(activeApiUrl);
+
       if (data.frontendUrl) {
         setFrontendUrl(data.frontendUrl);
       }
@@ -60,6 +74,17 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
         setToken(data.token);
         if (data.userName) setUserName(data.userName);
         fetchCandidates(data.token);
+      } else {
+        // Automatically attempt to sync session from any active Recruiter Portal tab
+        try {
+          chrome.runtime.sendMessage({ type: 'SYNC_FROM_PORTAL' }, (res) => {
+            if (res && res.success && res.token) {
+              setToken(res.token);
+              if (res.userName) setUserName(res.userName);
+              fetchCandidates(res.token);
+            }
+          });
+        } catch (_e) {}
       }
       if (data.evaluationState) {
         setEvalState(data.evaluationState);
@@ -72,14 +97,25 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       }
     });
 
-    // Listen for storage changes from background worker
+    // Listen for storage changes from background worker or auth bridge
     const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
       if (area === 'local') {
+        if (changes.token) {
+          const newToken = changes.token.newValue || '';
+          setToken(newToken);
+          if (newToken) fetchCandidates(newToken);
+        }
+        if (changes.userName) {
+          setUserName(changes.userName.newValue || 'Recruiter');
+        }
         if (changes.evaluationState) {
           setEvalState(changes.evaluationState.newValue || { status: 'idle' });
         }
         if (changes.frontendUrl) {
           setFrontendUrl(changes.frontendUrl.newValue || 'http://localhost:3000');
+        }
+        if (changes.apiUrl) {
+          setServerUrl(changes.apiUrl.newValue || DEFAULT_API_URL);
         }
       }
     };
@@ -105,6 +141,34 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       }
     } catch (e) {
       console.error('Failed to fetch candidates:', e);
+    }
+  };
+
+  // 1-Click Synchronize Session from active Recruiter Portal tab
+  const handleSyncPortal = async () => {
+    setIsLoggingIn(true);
+    setLoginError('');
+    try {
+      const res = await new Promise<any>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'SYNC_FROM_PORTAL' }, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ success: false, message: chrome.runtime.lastError.message });
+          } else {
+            resolve(response || { success: false, message: 'No response from background worker' });
+          }
+        });
+      });
+      if (res && res.success && res.token) {
+        setToken(res.token);
+        if (res.userName) setUserName(res.userName);
+        await fetchCandidates(res.token);
+      } else {
+        setLoginError(res.message || 'No active portal session found. Please sign into the Recruiter Portal or enter credentials below.');
+      }
+    } catch (err: any) {
+      setLoginError(err.message || 'Portal session sync failed');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -573,6 +637,44 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
               Credentials bind your physical machine hardware to your agency seat.
             </p>
             {loginError && <div className="jdm-error-alert">{loginError}</div>}
+
+            {/* Auto-Sync with Recruiter Portal Tab */}
+            <div style={{ marginTop: '10px', marginBottom: '8px' }}>
+              <button
+                type="button"
+                onClick={handleSyncPortal}
+                disabled={isLoggingIn}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(99, 102, 241, 0.25)',
+                }}
+              >
+                <span>⚡</span>
+                <span>{isLoggingIn ? 'Syncing Session...' : 'Auto-Sync from Recruiter Portal Tab'}</span>
+              </button>
+              <div style={{ textAlign: 'center', fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>
+                Signed in on the web portal? Click above to instantly link this extension.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', margin: '10px 0', gap: '8px' }}>
+              <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+              <span style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>or sign in manually</span>
+              <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+            </div>
+
             <div>
               <label className="jdm-field-label">Email</label>
               <input
@@ -649,6 +751,29 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             <button type="submit" className="jdm-btn-submit" disabled={isLoggingIn}>
               {isLoggingIn ? 'Verifying Hardware Lock...' : 'Sign In & Access Bench'}
             </button>
+
+            <div style={{ marginTop: '8px', textAlign: 'center' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setRecruiterEmail('recruiter@apexit.com');
+                  setRecruiterPassword('Recruiter2026!');
+                  setLoginError('');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#4f46e5',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  padding: '4px',
+                }}
+              >
+                Quick-Fill Demo Recruiter Credentials (Apex IT)
+              </button>
+            </div>
           </form>
         ) : (
           <>

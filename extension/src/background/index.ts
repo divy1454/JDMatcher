@@ -68,7 +68,92 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     getOrCreateDeviceId().then((deviceId) => sendResponse({ deviceId }));
     return true;
   }
+
+  if (message.type === 'SYNC_FROM_PORTAL') {
+    handleSyncFromPortal()
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
+
+async function handleSyncFromPortal() {
+  const tabs = await chrome.tabs.query({
+    url: [
+      '*://localhost:*/*',
+      '*://127.0.0.1:*/*',
+      '*://*.onrender.com/*',
+    ],
+  });
+
+  if (!tabs || tabs.length === 0) {
+    return { success: false, message: 'No recruiter portal tab is currently open.' };
+  }
+
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          return {
+            token: localStorage.getItem('token') || localStorage.getItem('bs_token'),
+            origin: window.location.origin,
+          };
+        },
+      });
+
+      if (results && results[0] && results[0].result?.token) {
+        const token = results[0].result.token;
+        const origin = results[0].result.origin;
+
+        let candidateApiUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
+          ? 'http://localhost:4000'
+          : API_BASE_URL;
+
+        const storage = await chrome.storage.local.get(['apiUrl']);
+        if (storage.apiUrl) {
+          candidateApiUrl = storage.apiUrl;
+        }
+
+        let userName = 'Recruiter';
+        let userObj = null;
+        let orgObj = null;
+        try {
+          const res = await fetch(`${candidateApiUrl}/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            userObj = data.user;
+            orgObj = data.organization;
+            userName = data.user?.fullName?.split(' ')[0] || data.user?.name || 'Recruiter';
+          }
+        } catch (_e) {}
+
+        await chrome.storage.local.set({
+          token,
+          userName,
+          currentUser: userObj,
+          currentOrg: orgObj,
+          apiUrl: candidateApiUrl,
+          frontendUrl: origin,
+        });
+
+        return {
+          success: true,
+          token,
+          userName,
+          user: userObj,
+          organization: orgObj,
+          message: `Successfully synchronized session from ${origin}!`,
+        };
+      }
+    } catch (_err) {}
+  }
+
+  return { success: false, message: 'Found portal tab, but no active login session was found. Please sign into the portal.' };
+}
 
 async function handleEvaluation(payload: {
   candidateId: string;
@@ -78,10 +163,15 @@ async function handleEvaluation(payload: {
   companyOrClient?: string;
 }) {
   const deviceId = await getOrCreateDeviceId();
-  const storage = await chrome.storage.local.get(['token', 'apiUrl']);
+  const storage = await chrome.storage.local.get(['token', 'apiUrl', 'frontendUrl']);
   const token = storage.token;
-  const rawUrl = storage.apiUrl || API_BASE_URL;
-  const baseUrl = rawUrl.trim().replace(/\/+$/, '');
+  let rawUrl = storage.apiUrl;
+  if (!rawUrl) {
+    rawUrl = storage.frontendUrl?.includes('localhost') || storage.frontendUrl?.includes('127.0.0.1')
+      ? 'http://localhost:4000'
+      : API_BASE_URL;
+  }
+  const baseUrl = rawUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
 
   // Persist loading state so reopening widget restores progress
   const loadingState: StoredEvaluationState = {
@@ -177,10 +267,15 @@ async function handleSaveApplied(payload: {
   matchReasoning: string;
 }) {
   const deviceId = await getOrCreateDeviceId();
-  const storage = await chrome.storage.local.get(['token', 'apiUrl']);
+  const storage = await chrome.storage.local.get(['token', 'apiUrl', 'frontendUrl']);
   const token = storage.token;
-  const rawUrl = storage.apiUrl || API_BASE_URL;
-  const baseUrl = rawUrl.trim().replace(/\/+$/, '');
+  let rawUrl = storage.apiUrl;
+  if (!rawUrl) {
+    rawUrl = storage.frontendUrl?.includes('localhost') || storage.frontendUrl?.includes('127.0.0.1')
+      ? 'http://localhost:4000'
+      : API_BASE_URL;
+  }
+  const baseUrl = rawUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
 
   const response = await fetch(`${baseUrl}/analyze/save-applied`, {
     method: 'POST',

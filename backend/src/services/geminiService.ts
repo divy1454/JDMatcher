@@ -50,85 +50,98 @@ export class GeminiService {
 
     // If API key is provided, execute real call via @google/genai
     if (client) {
-      try {
-        const response = await client.models.generateContent({
-          model: 'gemini-1.5-flash',
-          contents: prompt,
-          config: {
-            temperature: 0.1,
-            responseMimeType: 'application/json',
-          },
-        });
+      const candidateModels = [
+        env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+        'gemini-flash-latest',
+        'gemini-3.5-flash',
+      ];
 
-        const latencyMs = Date.now() - startTime;
-        const text = response.text || '{}';
-        const parsed = JSON.parse(text);
-
-        // Extract or estimate tokens from metadata
-        const inputTokens = response.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / 4);
-        const outputTokens = response.usageMetadata?.candidatesTokenCount || Math.ceil(text.length / 4);
-
-        const isApply = parsed.verdict?.toString().trim().toUpperCase() === 'APPLY';
-        const verdict: 'APPLY' | 'SKIP' = isApply ? 'APPLY' : 'SKIP';
-
-        const matchAssessment = parsed.matchAssessment || (isApply ? 'Strong Match' : 'Weak Match');
-        let calculatedScore = 50;
-        if (matchAssessment.toLowerCase().includes('strong')) calculatedScore = 90;
-        else if (matchAssessment.toLowerCase().includes('moderate')) calculatedScore = 70;
-        else calculatedScore = 40;
-
-        const alignedSkills = Array.isArray(parsed.candidateFitCheck?.alignedSkills)
-          ? parsed.candidateFitCheck.alignedSkills
-          : Array.isArray(parsed.keyStrengths)
-          ? parsed.keyStrengths
-          : [];
-
-        const gaps = Array.isArray(parsed.candidateFitCheck?.gaps)
-          ? parsed.candidateFitCheck.gaps
-          : Array.isArray(parsed.missingCriticalSkills)
-          ? parsed.missingCriticalSkills
-          : [];
-
-        const naturalHighlights = Array.isArray(parsed.naturalFitHighlights)
-          ? parsed.naturalFitHighlights
-          : alignedSkills;
-
-        const justification = parsed.verdictJustification || parsed.reasoning || (isApply ? 'Strong natural fit' : 'Candidate does not meet core requirements');
-
-        return {
-          result: {
-            verdict,
-            verdictJustification: justification,
-            jobTitle: parsed.jobTitle || 'Opportunity',
-            companyName: parsed.companyName || 'Client',
-            eligibilityCheck: parsed.eligibilityCheck || (isApply ? 'No auto-skip triggers.' : 'Eligibility mismatch detected.'),
-            isEligible: typeof parsed.isEligible === 'boolean' ? parsed.isEligible : isApply,
-            matchAssessment,
-            candidateFitCheck: {
-              alignedSkills,
-              gaps,
+      for (const modelName of candidateModels) {
+        try {
+          const response = await client.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              temperature: 0.1,
+              responseMimeType: 'application/json',
             },
-            naturalFitHighlights: naturalHighlights,
-            applicationQuestions: Array.isArray(parsed.applicationQuestions) ? parsed.applicationQuestions : [],
-            otherNotes: parsed.otherNotes || '',
-            matchScore: Number(parsed.matchScore) || calculatedScore,
-            reasoning: justification,
-            keyStrengths: alignedSkills,
-            missingCriticalSkills: gaps,
-            visaMatch: !justification.toLowerCase().includes('visa') && !justification.toLowerCase().includes('citizenship'),
-            clearanceMatch: !justification.toLowerCase().includes('clearance'),
-            workPrefMatch: true,
-          },
-          usage: {
-            inputTokens,
-            outputTokens,
-            latencyMs,
-            modelName: 'gemini-2.5-flash',
-            isSimulated: false,
-          },
-        };
-      } catch (error) {
-        console.error('Gemini API call failed, falling back to heuristic engine:', error);
+          });
+
+          const latencyMs = Date.now() - startTime;
+          const rawText = response.text || '{}';
+          const cleanedText = rawText
+            .replace(/^```json\s*/i, '')
+            .replace(/^```\s*/i, '')
+            .replace(/\s*```$/i, '')
+            .trim();
+          const parsed = JSON.parse(cleanedText);
+
+          // Extract or estimate tokens from metadata
+          const inputTokens = response.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / 4);
+          const outputTokens = response.usageMetadata?.candidatesTokenCount || Math.ceil(cleanedText.length / 4);
+
+          const isApply = parsed.verdict?.toString().trim().toUpperCase() === 'APPLY';
+          const verdict: 'APPLY' | 'SKIP' = isApply ? 'APPLY' : 'SKIP';
+
+          const matchAssessment = parsed.matchAssessment || (isApply ? 'Strong Match' : 'Weak Match');
+          let calculatedScore = 50;
+          if (matchAssessment.toLowerCase().includes('strong')) calculatedScore = 90;
+          else if (matchAssessment.toLowerCase().includes('moderate')) calculatedScore = 70;
+          else calculatedScore = 40;
+
+          const alignedSkills = Array.isArray(parsed.candidateFitCheck?.alignedSkills)
+            ? parsed.candidateFitCheck.alignedSkills
+            : Array.isArray(parsed.keyStrengths)
+            ? parsed.keyStrengths
+            : [];
+
+          const gaps = Array.isArray(parsed.candidateFitCheck?.gaps)
+            ? parsed.candidateFitCheck.gaps
+            : Array.isArray(parsed.missingCriticalSkills)
+            ? parsed.missingCriticalSkills
+            : [];
+
+          const naturalHighlights = Array.isArray(parsed.naturalFitHighlights)
+            ? parsed.naturalFitHighlights
+            : alignedSkills;
+
+          const justification = parsed.verdictJustification || parsed.reasoning || (isApply ? 'Strong natural fit' : 'Candidate does not meet core requirements');
+
+          return {
+            result: {
+              verdict,
+              verdictJustification: justification,
+              jobTitle: parsed.jobTitle || 'Opportunity',
+              companyName: parsed.companyName || 'Client',
+              eligibilityCheck: parsed.eligibilityCheck || (isApply ? 'No auto-skip triggers.' : 'Eligibility mismatch detected.'),
+              isEligible: typeof parsed.isEligible === 'boolean' ? parsed.isEligible : isApply,
+              matchAssessment,
+              candidateFitCheck: {
+                alignedSkills,
+                gaps,
+              },
+              naturalFitHighlights: naturalHighlights,
+              applicationQuestions: Array.isArray(parsed.applicationQuestions) ? parsed.applicationQuestions : [],
+              otherNotes: parsed.otherNotes || '',
+              matchScore: Number(parsed.matchScore) || calculatedScore,
+              reasoning: justification,
+              keyStrengths: alignedSkills,
+              missingCriticalSkills: gaps,
+              visaMatch: !justification.toLowerCase().includes('visa') && !justification.toLowerCase().includes('citizenship'),
+              clearanceMatch: !justification.toLowerCase().includes('clearance'),
+              workPrefMatch: true,
+            },
+            usage: {
+              inputTokens,
+              outputTokens,
+              latencyMs,
+              modelName,
+              isSimulated: false,
+            },
+          };
+        } catch (mErr: any) {
+          console.warn(`Model ${modelName} evaluation attempt failed: ${mErr.message?.substring(0, 100)}. Trying fallback...`);
+        }
       }
     }
 

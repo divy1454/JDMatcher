@@ -52,12 +52,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
       setUser(data.user);
       setOrganization(data.organization);
       setToken(storedToken);
+
+      // Broadcast auth sync for Chrome extension
+      if (typeof window !== 'undefined' && data.user) {
+        window.postMessage({
+          type: 'JDMATCHER_AUTH_SYNC',
+          token: storedToken,
+          user: data.user,
+          organization: data.organization || null,
+          apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api',
+          frontendUrl: window.location.origin,
+        }, '*');
+      }
     } catch (err) {
       console.warn('Session expired or invalid:', err);
       localStorage.removeItem('token');
       setUser(null);
       setOrganization(null);
       setToken(null);
+      if (typeof window !== 'undefined') {
+        document.cookie = 'token=; path=/; max-age=0; SameSite=Lax';
+        window.postMessage({ type: 'JDMATCHER_AUTH_LOGOUT' }, '*');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -73,6 +89,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
     setUser(newUser);
     setOrganization(newOrg || null);
 
+    // Set cookie and broadcast auth sync for Chrome extension
+    if (typeof window !== 'undefined') {
+      document.cookie = `token=${newToken}; path=/; max-age=604800; SameSite=Lax`;
+      window.postMessage({
+        type: 'JDMATCHER_AUTH_SYNC',
+        token: newToken,
+        user: newUser,
+        organization: newOrg || null,
+        apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api',
+        frontendUrl: window.location.origin,
+      }, '*');
+    }
+
     if (newUser.role === 'super_admin') {
       router.push('/admin/telemetry');
     } else if (newUser.role === 'org_admin') {
@@ -87,6 +116,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
     setToken(null);
     setUser(null);
     setOrganization(null);
+    if (typeof window !== 'undefined') {
+      document.cookie = 'token=; path=/; max-age=0; SameSite=Lax';
+      window.postMessage({ type: 'JDMATCHER_AUTH_LOGOUT' }, '*');
+    }
     router.push('/login');
   };
 
