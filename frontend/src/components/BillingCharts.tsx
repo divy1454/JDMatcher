@@ -48,6 +48,36 @@ interface BillingChartsProps {
 
 const VERDICT_COLORS = ['#10B981', '#EF4444', '#6B7280'];
 
+// Custom High-Contrast Tooltip for Pie Chart
+const CustomPieTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const item = payload[0];
+    const isApply = item.name?.toLowerCase().includes('apply');
+    const color = item.payload?.color || (isApply ? '#10B981' : '#EF4444');
+    const title = isApply ? 'Apply (Match)' : 'Skip (No Match)';
+    const count = Number(item.value) || 0;
+
+    return (
+      <div className="rounded-xl border border-slate-700/80 bg-slate-950/95 px-3.5 py-2.5 shadow-2xl backdrop-blur-xl">
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 rounded-full shrink-0 shadow-sm"
+            style={{ backgroundColor: color }}
+          />
+          <span className="text-xs font-bold text-white tracking-tight">{title}</span>
+        </div>
+        <div className="mt-1.5 flex items-baseline gap-1.5">
+          <span className="text-base font-extrabold text-white font-mono">{count}</span>
+          <span className="text-xs font-medium text-slate-400">
+            {count === 1 ? 'evaluation' : 'evaluations'}
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export default function BillingCharts({
   dailyStats = [],
   recruiterBreakdown = [],
@@ -104,12 +134,15 @@ export default function BillingCharts({
                   <YAxis stroke="#64748B" fontSize={11} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#0F172A',
+                      backgroundColor: '#020617',
                       borderColor: '#334155',
                       borderRadius: '0.75rem',
                       fontSize: '12px',
+                      color: '#F8FAFC',
+                      boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.5)',
                     }}
-                    labelStyle={{ color: '#F1F5F9', fontWeight: 'bold' }}
+                    itemStyle={{ color: '#F8FAFC' }}
+                    labelStyle={{ color: '#FFFFFF', fontWeight: 'bold' }}
                   />
                   <Area
                     type="monotone"
@@ -164,14 +197,7 @@ export default function BillingCharts({
                           />
                         ))}
                       </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0F172A',
-                          borderColor: '#334155',
-                          borderRadius: '0.75rem',
-                          fontSize: '12px',
-                        }}
-                      />
+                      <Tooltip content={<CustomPieTooltip />} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -224,12 +250,16 @@ export default function BillingCharts({
                 <YAxis stroke="#64748B" fontSize={11} allowDecimals={false} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#0F172A',
+                    backgroundColor: '#020617',
                     borderColor: '#334155',
                     borderRadius: '0.75rem',
                     fontSize: '12px',
+                    color: '#F8FAFC',
+                    boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.5)',
                   }}
-                  formatter={(val: any) => [val, 'Evaluations']}
+                  itemStyle={{ color: '#F8FAFC' }}
+                  labelStyle={{ color: '#FFFFFF', fontWeight: 'bold' }}
+                  formatter={(val: any) => [`${val} evaluations`, 'Evaluations']}
                 />
                 <Bar
                   dataKey="count"
