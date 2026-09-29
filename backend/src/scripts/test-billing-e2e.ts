@@ -11,7 +11,7 @@ async function testBillingE2E() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: 'admin@apexit.com', password: 'ApexAdmin2026!' }),
   });
-  const orgLoginData = await orgLoginRes.json();
+  const orgLoginData = (await orgLoginRes.json()) as any;
   if (!orgLoginData.token) {
     throw new Error('Org admin login failed: ' + JSON.stringify(orgLoginData));
   }
@@ -23,7 +23,7 @@ async function testBillingE2E() {
   const expensesRes = await fetch(`${baseUrl}/invoices/my-expenses`, {
     headers: { Authorization: `Bearer ${orgToken}` },
   });
-  const expenses = await expensesRes.json();
+  const expenses = (await expensesRes.json()) as any[];
   console.log(`✅ Retrieved ${expenses.length} monthly expense records:`);
   for (const exp of expenses) {
     console.log(
@@ -41,7 +41,7 @@ async function testBillingE2E() {
   const sepInvRes = await fetch(`${baseUrl}/invoices/${sepExp.invoice.id}`, {
     headers: { Authorization: `Bearer ${orgToken}` },
   });
-  const sepInv = await sepInvRes.json();
+  const sepInv = (await sepInvRes.json()) as any;
   console.log('✅ Invoice Details Retrieved:');
   console.log('  Invoice #:', sepInv.invoice.invoiceNumber);
   console.log('  Owner Name:', sepInv.owner.name);
@@ -61,7 +61,7 @@ async function testBillingE2E() {
       headers: { Authorization: `Bearer ${orgToken}` },
     });
     console.log('  October Invoice HTTP Status for Agency:', octInvRes.status);
-    const octBody = await octInvRes.json();
+    const octBody = (await octInvRes.json()) as any;
     console.log('  October Response:', octBody);
     if (octInvRes.status === 403) {
       console.log('✅ Correctly blocked: Agency cannot access invoice before Super Admin generates it!');
@@ -75,7 +75,7 @@ async function testBillingE2E() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: env.SUPER_ADMIN_EMAIL, password: env.SUPER_ADMIN_PASSWORD }),
   });
-  const superData = await superLoginRes.json();
+  const superData = (await superLoginRes.json()) as any;
   const superToken = superData.token;
   console.log('✅ Super Admin logged in:', superData.user.fullName);
 
@@ -89,14 +89,14 @@ async function testBillingE2E() {
       },
       body: JSON.stringify({ isGenerated: true }),
     });
-    const toggleData = await toggleRes.json();
+    const toggleData = (await toggleRes.json()) as any;
     console.log('✅ Super Admin toggle response:', toggleData.message);
 
     // Verify agency can now download October 2026 invoice
     const recheckExpensesRes = await fetch(`${baseUrl}/invoices/my-expenses`, {
       headers: { Authorization: `Bearer ${orgToken}` },
     });
-    const recheckExpenses = await recheckExpensesRes.json();
+    const recheckExpenses = (await recheckExpensesRes.json()) as any[];
     const updatedOct = recheckExpenses.find((e: any) => e.billingMonth === '2026-10');
     console.log('  October 2026 updated canDownload status for Agency:', updatedOct?.canDownload);
     if (updatedOct?.canDownload) {
