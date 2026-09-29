@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { db, pool } from '../db/index.js';
-import { users, organizations, candidates, platformSettings } from '../db/schema.js';
+import { users, organizations, candidates, platformSettings, invoices, tokenConsumptionLedger } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { env } from '../env.js';
 import { DEFAULT_GLOBAL_EVAL_PROMPT } from '../services/promptService.js';
@@ -180,6 +180,318 @@ EXPERIENCE:
       },
     ]);
     console.log('Seeded 3 benchmark bench candidates.');
+  }
+
+  // 7. Seed Monthly Expense Tracking & Real-Life Invoices for Demo Agency (Apex IT Staffing)
+  console.log('Checking monthly dummy invoices for Apex IT Staffing...');
+  const [existingInv] = await db
+    .select()
+    .from(invoices)
+    .where(eq(invoices.organizationId, demoOrg.id))
+    .limit(1);
+
+  if (!existingInv) {
+    console.log('Seeding rich monthly business-level invoices with UPI details...');
+    
+    // Seed sample ledger entries across months if empty
+    const [existingLedger] = await db
+      .select()
+      .from(tokenConsumptionLedger)
+      .where(eq(tokenConsumptionLedger.organizationId, demoOrg.id))
+      .limit(1);
+
+    if (!existingLedger && recruiterId) {
+      console.log('Seeding historical ledger consumption entries...');
+      await db.insert(tokenConsumptionLedger).values([
+        // July 2026
+        {
+          organizationId: demoOrg.id,
+          recruiterId,
+          inputTokens: 980000,
+          outputTokens: 980000,
+          totalTokens: 1960000,
+          rawCostUsd: '12.250000',
+          profitMultiplier: '4.00',
+          billedCostUsd: '49.000000',
+          latencyMs: 740,
+          modelName: 'gemini-3.5-flash-lite',
+          timestamp: new Date('2026-07-20T10:30:00Z'),
+        },
+        // August 2026
+        {
+          organizationId: demoOrg.id,
+          recruiterId,
+          inputTokens: 2150000,
+          outputTokens: 2150000,
+          totalTokens: 4300000,
+          rawCostUsd: '26.875000',
+          profitMultiplier: '4.00',
+          billedCostUsd: '107.500000',
+          latencyMs: 690,
+          modelName: 'gemini-3.5-flash-lite',
+          timestamp: new Date('2026-08-18T14:45:00Z'),
+        },
+        // September 2026
+        {
+          organizationId: demoOrg.id,
+          recruiterId,
+          inputTokens: 1420000,
+          outputTokens: 1420000,
+          totalTokens: 2840000,
+          rawCostUsd: '17.800000',
+          profitMultiplier: '4.00',
+          billedCostUsd: '71.200000',
+          latencyMs: 710,
+          modelName: 'gemini-3.5-flash-lite',
+          timestamp: new Date('2026-09-15T11:20:00Z'),
+        },
+        // October 2026 (Unbilled / Ongoing)
+        {
+          organizationId: demoOrg.id,
+          recruiterId,
+          inputTokens: 340000,
+          outputTokens: 340000,
+          totalTokens: 680000,
+          rawCostUsd: '4.250000',
+          profitMultiplier: '4.00',
+          billedCostUsd: '17.000000',
+          latencyMs: 650,
+          modelName: 'gemini-3.5-flash-lite',
+          timestamp: new Date('2026-10-02T09:15:00Z'),
+        },
+      ]);
+    }
+
+    // Seed July 2026 (Paid Invoice)
+    await db.insert(invoices).values({
+      organizationId: demoOrg.id,
+      invoiceNumber: 'JDM-202607-APEX01',
+      billingMonth: '2026-07',
+      periodStart: new Date('2026-07-01T00:00:00Z'),
+      periodEnd: new Date('2026-07-31T23:59:59Z'),
+      issueDate: new Date('2026-08-01T09:00:00Z'),
+      dueDate: new Date('2026-08-15T23:59:59Z'),
+      status: 'paid',
+      isGenerated: true,
+      totalEvaluations: 980,
+      totalTokens: 1960000,
+      rawCostUsd: '12.2500',
+      subtotalUsd: '49.0000',
+      taxUsd: '0.0000',
+      totalAmountUsd: '49.0000',
+      exchangeRateInr: '86.5000',
+      totalAmountInr: '4238.50',
+      upiId: '8999911999-2@ybl',
+      ownerName: 'Divy Patel',
+      ownerPhone: '+91 8999911999',
+      ownerEmail: 'divy9954@gmail.com',
+      lineItems: [
+        {
+          id: 'li-1',
+          category: 'AI Inference',
+          description: 'Candidate Evaluation Operations (Waterfall Prompt Engine)',
+          quantity: 980,
+          unit: 'evals',
+          unitPriceUsd: 0.03,
+          totalUsd: 29.40,
+        },
+        {
+          id: 'li-2',
+          category: 'Token Ledger',
+          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption (1,960,000 tokens)',
+          quantity: 1960000,
+          unit: 'tokens',
+          unitPriceUsd: 0.00000625,
+          totalUsd: 12.25,
+        },
+        {
+          id: 'li-3',
+          category: 'Platform & Security',
+          description: 'Enterprise Tenant Security Deposit Ledger & Recruiter Anti-Sharing Lock',
+          quantity: 1,
+          unit: 'month',
+          unitPriceUsd: 7.35,
+          totalUsd: 7.35,
+        },
+      ],
+      notes: 'Settled via UPI transaction ID: UPI/20260729/89999119992. Receipt generated.',
+      generatedBy: 'divy9954@gmail.com',
+      generatedAt: new Date('2026-08-01T09:00:00Z'),
+      paidAt: new Date('2026-07-29T14:30:00Z'),
+    });
+
+    // Seed August 2026 (Paid Invoice)
+    await db.insert(invoices).values({
+      organizationId: demoOrg.id,
+      invoiceNumber: 'JDM-202608-APEX01',
+      billingMonth: '2026-08',
+      periodStart: new Date('2026-08-01T00:00:00Z'),
+      periodEnd: new Date('2026-08-31T23:59:59Z'),
+      issueDate: new Date('2026-09-01T09:00:00Z'),
+      dueDate: new Date('2026-09-15T23:59:59Z'),
+      status: 'paid',
+      isGenerated: true,
+      totalEvaluations: 2150,
+      totalTokens: 4300000,
+      rawCostUsd: '26.8750',
+      subtotalUsd: '107.5000',
+      taxUsd: '0.0000',
+      totalAmountUsd: '107.5000',
+      exchangeRateInr: '86.5000',
+      totalAmountInr: '9298.75',
+      upiId: '8999911999-2@ybl',
+      ownerName: 'Divy Patel',
+      ownerPhone: '+91 8999911999',
+      ownerEmail: 'divy9954@gmail.com',
+      lineItems: [
+        {
+          id: 'li-1',
+          category: 'AI Inference',
+          description: 'Candidate Evaluation Operations (2,150 matches evaluated)',
+          quantity: 2150,
+          unit: 'evals',
+          unitPriceUsd: 0.03,
+          totalUsd: 64.50,
+        },
+        {
+          id: 'li-2',
+          category: 'Token Ledger',
+          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption (4,300,000 tokens)',
+          quantity: 4300000,
+          unit: 'tokens',
+          unitPriceUsd: 0.00000625,
+          totalUsd: 26.88,
+        },
+        {
+          id: 'li-3',
+          category: 'Platform & Security',
+          description: 'Enterprise Tenant Security Deposit Ledger & Recruiter Anti-Sharing Lock',
+          quantity: 1,
+          unit: 'month',
+          unitPriceUsd: 16.12,
+          totalUsd: 16.12,
+        },
+      ],
+      notes: 'Settled via UPI transaction ID: UPI/20260828/89999119992. Receipt generated.',
+      generatedBy: 'divy9954@gmail.com',
+      generatedAt: new Date('2026-09-01T09:00:00Z'),
+      paidAt: new Date('2026-08-28T18:15:00Z'),
+    });
+
+    // Seed September 2026 (Generated & Published Invoice - Payment Due)
+    await db.insert(invoices).values({
+      organizationId: demoOrg.id,
+      invoiceNumber: 'JDM-202609-APEX01',
+      billingMonth: '2026-09',
+      periodStart: new Date('2026-09-01T00:00:00Z'),
+      periodEnd: new Date('2026-09-30T23:59:59Z'),
+      issueDate: new Date('2026-09-25T11:00:00Z'),
+      dueDate: new Date('2026-10-15T23:59:59Z'),
+      status: 'generated',
+      isGenerated: true, // Super admin chose to generate bill! Agency gets Download Invoice button!
+      totalEvaluations: 1420,
+      totalTokens: 2840000,
+      rawCostUsd: '17.8000',
+      subtotalUsd: '71.2000',
+      taxUsd: '0.0000',
+      totalAmountUsd: '71.2000',
+      exchangeRateInr: '86.5000',
+      totalAmountInr: '6158.80',
+      upiId: '8999911999-2@ybl',
+      ownerName: 'Divy Patel',
+      ownerPhone: '+91 8999911999',
+      ownerEmail: 'divy9954@gmail.com',
+      lineItems: [
+        {
+          id: 'li-1',
+          category: 'AI Inference',
+          description: 'Candidate Evaluation Operations (1,420 evaluations)',
+          quantity: 1420,
+          unit: 'evals',
+          unitPriceUsd: 0.03,
+          totalUsd: 42.60,
+        },
+        {
+          id: 'li-2',
+          category: 'Token Ledger',
+          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption (2,840,000 tokens)',
+          quantity: 2840000,
+          unit: 'tokens',
+          unitPriceUsd: 0.00000625,
+          totalUsd: 17.80,
+        },
+        {
+          id: 'li-3',
+          category: 'Platform & Security',
+          description: 'Enterprise Dedicated Hardware Device Guard & Anti-Sharing Security',
+          quantity: 1,
+          unit: 'month',
+          unitPriceUsd: 10.80,
+          totalUsd: 10.80,
+        },
+      ],
+      notes: 'Scan the UPI QR code using Google Pay, PhonePe, or Paytm to pay ₹6,158.80 instantly.',
+      generatedBy: 'divy9954@gmail.com',
+      generatedAt: new Date('2026-09-25T11:00:00Z'),
+    });
+
+    // Seed October 2026 (Unbilled / Ongoing Month with isGenerated = false)
+    // Demonstrates: Agency sees expense tracking, but NO download button because Super Admin has not generated bill yet!
+    await db.insert(invoices).values({
+      organizationId: demoOrg.id,
+      invoiceNumber: 'JDM-202610-APEX01',
+      billingMonth: '2026-10',
+      periodStart: new Date('2026-10-01T00:00:00Z'),
+      periodEnd: new Date('2026-10-31T23:59:59Z'),
+      issueDate: new Date('2026-10-02T09:00:00Z'),
+      dueDate: new Date('2026-11-15T23:59:59Z'),
+      status: 'draft',
+      isGenerated: false, // Super admin has NOT generated bill yet! Download button hidden from Agency!
+      totalEvaluations: 340,
+      totalTokens: 680000,
+      rawCostUsd: '4.2500',
+      subtotalUsd: '17.0000',
+      taxUsd: '0.0000',
+      totalAmountUsd: '17.0000',
+      exchangeRateInr: '86.5000',
+      totalAmountInr: '1470.50',
+      upiId: '8999911999-2@ybl',
+      ownerName: 'Divy Patel',
+      ownerPhone: '+91 8999911999',
+      ownerEmail: 'divy9954@gmail.com',
+      lineItems: [
+        {
+          id: 'li-1',
+          category: 'AI Inference',
+          description: 'Candidate Evaluation Operations (Current month draft)',
+          quantity: 340,
+          unit: 'evals',
+          unitPriceUsd: 0.03,
+          totalUsd: 10.20,
+        },
+        {
+          id: 'li-2',
+          category: 'Token Ledger',
+          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption',
+          quantity: 680000,
+          unit: 'tokens',
+          unitPriceUsd: 0.00000625,
+          totalUsd: 4.25,
+        },
+        {
+          id: 'li-3',
+          category: 'Platform & Security',
+          description: 'Enterprise Dedicated Hardware Device Guard',
+          quantity: 1,
+          unit: 'month',
+          unitPriceUsd: 2.55,
+          totalUsd: 2.55,
+        },
+      ],
+      notes: 'Pending Super Admin monthly billing generation.',
+    });
+
+    console.log('Seeded 4 months of realistic expense tracking & invoices (Jul, Aug, Sep, Oct) for Apex IT Staffing!');
   }
 
   console.log('--- Database Seeding Completed Successfully ---');

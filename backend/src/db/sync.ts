@@ -34,6 +34,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
+DO $$ BEGIN
+  CREATE TYPE "invoice_status" AS ENUM('draft', 'pending', 'generated', 'paid', 'overdue', 'void');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
 CREATE TABLE IF NOT EXISTS "organizations" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "name" varchar(255) NOT NULL,
@@ -116,6 +121,38 @@ CREATE TABLE IF NOT EXISTS "platform_settings" (
   "updated_at" timestamp with time zone NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS "invoices" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "organization_id" uuid NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
+  "invoice_number" varchar(100) NOT NULL UNIQUE,
+  "billing_month" varchar(7) NOT NULL,
+  "period_start" timestamp with time zone NOT NULL,
+  "period_end" timestamp with time zone NOT NULL,
+  "issue_date" timestamp with time zone NOT NULL DEFAULT now(),
+  "due_date" timestamp with time zone NOT NULL,
+  "status" "invoice_status" NOT NULL DEFAULT 'generated',
+  "is_generated" boolean NOT NULL DEFAULT true,
+  "total_evaluations" integer NOT NULL DEFAULT 0,
+  "total_tokens" integer NOT NULL DEFAULT 0,
+  "raw_cost_usd" numeric(12, 4) NOT NULL DEFAULT '0.0000',
+  "subtotal_usd" numeric(12, 4) NOT NULL DEFAULT '0.0000',
+  "tax_usd" numeric(12, 4) NOT NULL DEFAULT '0.0000',
+  "total_amount_usd" numeric(12, 4) NOT NULL DEFAULT '0.0000',
+  "exchange_rate_inr" numeric(10, 4) NOT NULL DEFAULT '86.5000',
+  "total_amount_inr" numeric(12, 2) NOT NULL DEFAULT '0.00',
+  "upi_id" varchar(100) NOT NULL DEFAULT '8999911999-2@ybl',
+  "owner_name" varchar(255) NOT NULL DEFAULT 'Divy Patel',
+  "owner_phone" varchar(50) NOT NULL DEFAULT '+91 8999911999',
+  "owner_email" varchar(255) NOT NULL DEFAULT 'divy9954@gmail.com',
+  "line_items" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "notes" text,
+  "generated_by" varchar(255),
+  "generated_at" timestamp with time zone,
+  "paid_at" timestamp with time zone,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+  "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS "candidates_org_idx" ON "candidates"("organization_id");
 CREATE INDEX IF NOT EXISTS "candidates_recruiter_idx" ON "candidates"("created_by_recruiter_id");
 CREATE INDEX IF NOT EXISTS "matched_jds_org_idx" ON "matched_jds"("organization_id");
@@ -124,6 +161,9 @@ CREATE INDEX IF NOT EXISTS "ledger_org_idx" ON "token_consumption_ledger"("organ
 CREATE INDEX IF NOT EXISTS "ledger_timestamp_idx" ON "token_consumption_ledger"("timestamp");
 CREATE INDEX IF NOT EXISTS "users_org_idx" ON "users"("organization_id");
 CREATE INDEX IF NOT EXISTS "users_device_idx" ON "users"("device_id");
+CREATE INDEX IF NOT EXISTS "invoices_org_idx" ON "invoices"("organization_id");
+CREATE INDEX IF NOT EXISTS "invoices_month_idx" ON "invoices"("billing_month");
+CREATE INDEX IF NOT EXISTS "invoices_status_idx" ON "invoices"("status");
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -145,6 +185,11 @@ END $$;
 
 DO $$ BEGIN
   CREATE TRIGGER update_candidates_updated_at BEFORE UPDATE ON candidates FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER update_invoices_updated_at BEFORE UPDATE ON invoices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
   `;

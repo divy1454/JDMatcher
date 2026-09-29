@@ -13,6 +13,7 @@ import { candidatesRoutes } from './routes/candidates.routes.js';
 import { recruitersRoutes } from './routes/recruiters.routes.js';
 import { promptSettingsRoutes } from './routes/promptSettings.routes.js';
 import { telemetryRoutes } from './routes/telemetry.routes.js';
+import { invoicesRoutes } from './routes/invoices.routes.js';
 
 export async function buildServer() {
   const isProduction = env.NODE_ENV === 'production';
@@ -112,6 +113,9 @@ export async function buildServer() {
 
   await app.register(telemetryRoutes, { prefix: '/api/telemetry' });
   await app.register(telemetryRoutes, { prefix: '/telemetry' });
+
+  await app.register(invoicesRoutes, { prefix: '/api/invoices' });
+  await app.register(invoicesRoutes, { prefix: '/invoices' });
 
   return app;
 }

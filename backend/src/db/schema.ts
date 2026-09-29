@@ -25,6 +25,7 @@ export const clearanceEnum = pgEnum('security_clearance', [
   'Polygraph'
 ]);
 export const evalVerdictEnum = pgEnum('eval_verdict', ['APPLY', 'SKIP']);
+export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'pending', 'generated', 'paid', 'overdue', 'void']);
 
 // 1. ORGANIZATIONS (Agencies)
 export const organizations = pgTable('organizations', {
@@ -122,12 +123,57 @@ export const platformSettings = pgTable('platform_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// 7. INVOICES (Monthly Business Level Billing & Invoicing)
+export const invoices = pgTable('invoices', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  invoiceNumber: varchar('invoice_number', { length: 100 }).notNull().unique(),
+  billingMonth: varchar('billing_month', { length: 7 }).notNull(), // 'YYYY-MM'
+  periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
+  periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+  issueDate: timestamp('issue_date', { withTimezone: true }).defaultNow().notNull(),
+  dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
+  status: invoiceStatusEnum('status').notNull().default('generated'),
+  isGenerated: boolean('is_generated').notNull().default(true), // Super admin approval flag
+  totalEvaluations: integer('total_evaluations').notNull().default(0),
+  totalTokens: integer('total_tokens').notNull().default(0),
+  rawCostUsd: numeric('raw_cost_usd', { precision: 12, scale: 4 }).notNull().default('0.0000'),
+  subtotalUsd: numeric('subtotal_usd', { precision: 12, scale: 4 }).notNull().default('0.0000'),
+  taxUsd: numeric('tax_usd', { precision: 12, scale: 4 }).notNull().default('0.0000'),
+  totalAmountUsd: numeric('total_amount_usd', { precision: 12, scale: 4 }).notNull().default('0.0000'),
+  exchangeRateInr: numeric('exchange_rate_inr', { precision: 10, scale: 4 }).notNull().default('86.5000'),
+  totalAmountInr: numeric('total_amount_inr', { precision: 12, scale: 2 }).notNull().default('0.00'),
+  upiId: varchar('upi_id', { length: 100 }).notNull().default('8999911999-2@ybl'),
+  ownerName: varchar('owner_name', { length: 255 }).notNull().default('Divy Patel'),
+  ownerPhone: varchar('owner_phone', { length: 50 }).notNull().default('+91 8999911999'),
+  ownerEmail: varchar('owner_email', { length: 255 }).notNull().default('divy9954@gmail.com'),
+  lineItems: jsonb('line_items').notNull().default([]),
+  notes: text('notes'),
+  generatedBy: varchar('generated_by', { length: 255 }),
+  generatedAt: timestamp('generated_at', { withTimezone: true }),
+  paidAt: timestamp('paid_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('invoices_org_idx').on(t.organizationId),
+  index('invoices_month_idx').on(t.billingMonth),
+  index('invoices_status_idx').on(t.status),
+]);
+
 // Relations
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   users: many(users),
   candidates: many(candidates),
   matchedJds: many(matchedJds),
   ledgerEntries: many(tokenConsumptionLedger),
+  invoices: many(invoices),
+}));
+
+export const invoicesRelations = relations(invoices, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [invoices.organizationId],
+    references: [organizations.id],
+  }),
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -191,3 +237,6 @@ export type InsertTokenLedgerEntry = typeof tokenConsumptionLedger.$inferInsert;
 
 export type PlatformSetting = typeof platformSettings.$inferSelect;
 export type InsertPlatformSetting = typeof platformSettings.$inferInsert;
+
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = typeof invoices.$inferInsert;

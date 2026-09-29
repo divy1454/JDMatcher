@@ -17,11 +17,13 @@ import {
   ChevronRight,
   ShieldCheck,
   EyeOff,
+  Receipt,
 } from 'lucide-react';
 
 const navItems = [
   { name: 'Telemetry Dashboard', href: '/admin/telemetry', icon: Activity },
   { name: 'Organizations', href: '/admin/organizations', icon: Building2 },
+  { name: 'Invoices & Billing', href: '/admin/invoices', icon: Receipt },
   { name: 'Global Prompts', href: '/admin/prompts', icon: FileCode2 },
   { name: 'Org Admins', href: '/admin/admins', icon: Users2 },
   { name: 'Recruiters & Hardware', href: '/admin/recruiters', icon: Laptop },
