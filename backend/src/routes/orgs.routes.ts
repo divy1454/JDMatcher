@@ -262,7 +262,17 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         .groupBy(tokenConsumptionLedger.recruiterId, users.fullName)
         .orderBy(desc(sql`count(${tokenConsumptionLedger.id})`));
 
-      // 3. Verdict distribution from matched JDs
+      // 3. Total evaluations executed by this organization in the ledger
+      const totalLedgerEvals = await db
+        .select({
+          count: sql<number>`count(${tokenConsumptionLedger.id})::int`,
+        })
+        .from(tokenConsumptionLedger)
+        .where(eq(tokenConsumptionLedger.organizationId, user.organizationId!));
+
+      const totalEvaluationsCount = totalLedgerEvals[0]?.count || 0;
+
+      // 4. Verdict distribution from matched JDs
       const verdictRows = await db
         .select({
           verdict: sql<string>`${matchedJds.verdict}`,
@@ -273,10 +283,13 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         .groupBy(matchedJds.verdict);
 
       const applyCount = verdictRows.find((r) => r.verdict === 'APPLY')?.count || 0;
-      const skipCount = verdictRows.find((r) => r.verdict === 'SKIP')?.count || 0;
+      const explicitSkipCount = verdictRows.find((r) => r.verdict === 'SKIP')?.count || 0;
       const otherCount = verdictRows
         .filter((r) => r.verdict !== 'APPLY' && r.verdict !== 'SKIP')
         .reduce((sum, r) => sum + r.count, 0);
+
+      // Any evaluations evaluated by recruiters that were not applied or were explicitly skipped:
+      const skipCount = Math.max(explicitSkipCount, Math.max(0, totalEvaluationsCount - applyCount));
 
       return reply.send({
         dailyStats,

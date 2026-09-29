@@ -650,8 +650,57 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     }
   };
 
-  // Recruiter Action: Not Applied (Clear out without DB save & stop any active eval)
+  // Recruiter Action: Not Applied (Save as SKIP in DB & clear out)
   const handleDiscard = async () => {
+    if (evalState.result && selectedCandidateId) {
+      try {
+        const evalResult = evalState.result;
+        let titleToSave = evalResult.jobTitle || evalState.jobTitle;
+        if (!titleToSave || titleToSave === 'Opportunity' || titleToSave === 'Software Opportunity' || titleToSave === 'Job Application') {
+          const titleMatch = jdText.match(/(?:job\s*title|role|position)\s*[:\-–]?\s*([^\n\r,\.]{3,50})/i);
+          if (titleMatch && titleMatch[1]) {
+            titleToSave = titleMatch[1].trim();
+          } else {
+            const firstLine = jdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 80);
+            titleToSave = firstLine.length > 5 ? firstLine : (selectedCandidate ? `${selectedCandidate.primaryTitle} Opportunity` : 'Software Opportunity');
+          }
+        }
+
+        let companyToSave = evalResult.companyName || evalState.companyOrClient;
+        if (!companyToSave || companyToSave === 'Confidential / Client' || companyToSave === 'Client') {
+          const compMatch = jdText.match(/(?:company|client|employer|organization|at|with)\s*[:\-–]?\s*([A-Z][A-Za-z0-9&.\s]{2,35})/);
+          if (compMatch && compMatch[1]) {
+            companyToSave = compMatch[1].trim();
+          } else {
+            companyToSave = 'Confidential / Client';
+          }
+        }
+
+        let currentTabUrl = window.location.href;
+        try {
+          if (chrome.tabs && chrome.tabs.query) {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (activeTab?.url) currentTabUrl = activeTab.url;
+          }
+        } catch (_e) { }
+
+        chrome.runtime.sendMessage({
+          type: 'SAVE_APPLIED',
+          payload: {
+            candidateId: selectedCandidateId,
+            jobTitle: titleToSave,
+            companyOrClient: companyToSave,
+            jobUrl: currentTabUrl,
+            rawJdText: jdText,
+            verdict: 'SKIP',
+            matchScore: evalResult.matchScore || 0,
+            matchReasoning: evalResult.verdictJustification || evalResult.reasoning || 'Evaluated and marked as Not Applied / Skipped',
+          },
+        });
+      } catch (_err) {
+        // Non-blocking, continue clearing
+      }
+    }
     await handleClear();
   };
 

@@ -56,9 +56,9 @@ export default function BillingCharts({
 }: BillingChartsProps) {
   const verdictChartData = verdictStats
     ? [
-        { name: 'Apply (Match)', value: verdictStats.applyCount },
-        { name: 'Skip (No Match)', value: verdictStats.skipCount },
-        ...(verdictStats.otherCount > 0 ? [{ name: 'Other', value: verdictStats.otherCount }] : []),
+        { name: 'Apply (Match)', value: verdictStats.applyCount, color: '#10B981' },
+        { name: 'Skip (No Match)', value: verdictStats.skipCount, color: '#EF4444' },
+        ...(verdictStats.otherCount > 0 ? [{ name: 'Other', value: verdictStats.otherCount, color: '#6B7280' }] : []),
       ].filter((d) => d.value > 0)
     : [];
 
@@ -157,10 +157,10 @@ export default function BillingCharts({
                         paddingAngle={4}
                         dataKey="value"
                       >
-                        {verdictChartData.map((_entry, index) => (
+                        {verdictChartData.map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
-                            fill={VERDICT_COLORS[index % VERDICT_COLORS.length]}
+                            fill={entry.color}
                           />
                         ))}
                       </Pie>
