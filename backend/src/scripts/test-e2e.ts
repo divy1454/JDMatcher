@@ -98,13 +98,14 @@ async function runTestSuite() {
   assert(!hydrated.includes('{{candidate_name}}'), 'All placeholders cleanly hydrated');
 
   // TEST 6: Gemini Evaluation Response Structure
-  console.log('\n--- TEST GROUP 6: GEMINI 2.5 EVALUATION & DETERMINISM ---');
+  console.log('\n--- TEST GROUP 6: GEMINI 3.5 FLASH-LITE EVALUATION & DETERMINISM ---');
   const evalResult = await GeminiService.evaluate(hydrated);
   assert(evalResult.result.verdict === 'APPLY' || evalResult.result.verdict === 'SKIP', 'Evaluation returns strict verdict enum (APPLY | SKIP)');
   assert(typeof evalResult.result.matchScore === 'number' && evalResult.result.matchScore >= 0 && evalResult.result.matchScore <= 100, 'Evaluation returns valid match score (0-100)');
   assert(typeof evalResult.result.isEligible === 'boolean', 'Evaluation includes eligibility check');
   assert(evalResult.result.candidateFitCheck && Array.isArray(evalResult.result.candidateFitCheck.alignedSkills), 'Evaluation provides aligned skills array');
   assert(evalResult.usage.inputTokens > 0 && evalResult.usage.outputTokens > 0, 'Accurate token usage recorded for ledger');
+  assert(evalResult.usage.modelName === 'gemini-3.5-flash-lite', 'Strictly uses gemini-3.5-flash-lite');
 
   // TEST 7: Gemini 7-Section Markdown Demo Output Parsing Fidelity
   console.log('\n--- TEST GROUP 7: GEMINI 7-SECTION MARKDOWN PARSER FIDELITY ---');

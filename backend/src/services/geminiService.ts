@@ -85,12 +85,18 @@ You MUST respond strictly with valid, unescaped JSON matching this schema exactl
     let usageMetadata: any = null;
 
     try {
+      const config: any = {
+        temperature: 0.1,
+      };
+
+      if (finalPrompt.includes('CRITICAL JSON INSTRUCTION') || finalPrompt.includes('"jobTitle"')) {
+        config.responseMimeType = 'application/json';
+      }
+
       const response = await client.models.generateContent({
         model: modelName,
         contents: finalPrompt,
-        config: {
-          temperature: 0.1,
-        },
+        config,
       });
 
       rawText = response.text || '';

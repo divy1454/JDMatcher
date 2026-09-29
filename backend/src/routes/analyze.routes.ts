@@ -50,18 +50,21 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         eq(candidates.organizationId, user.organizationId!),
       ];
 
-      const [candidate] = await db
-        .select()
-        .from(candidates)
-        .where(and(...candidateConditions))
-        .limit(1);
+      // Step 1: Fetch Candidate and Resolve Prompt Template concurrently in parallel
+      const [[candidate], promptTemplate] = await Promise.all([
+        db
+          .select()
+          .from(candidates)
+          .where(and(...candidateConditions))
+          .limit(1),
+        PromptService.resolveTemplate(user.organizationId!),
+      ]);
 
       if (!candidate || !candidate.isActive) {
         return reply.status(404).send({ error: 'NOT_FOUND', message: 'Candidate not found or access denied' });
       }
 
-      // Step 1 & 2: Waterfall Prompt Resolution
-      const promptTemplate = await PromptService.resolveTemplate(user.organizationId!);
+      // Step 2: Hydrate Prompt Variables
       const promptVariables = PromptService.buildVariables(candidate, jdText);
       const hydratedPrompt = PromptService.hydratePrompt(promptTemplate, promptVariables);
 
@@ -77,22 +80,25 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         });
       }
 
-      // Step 4: Token Accounting & Offline Billing ledger
-      // Always record every evaluation so that evaluation count is 100% accurate
-      const billing = await BillingService.recordEvaluationConsumption(
+      // Step 4 & 5: Offline Billing ledger & Telemetry Broadcast
+      // Dispatched non-blocking so the recruiter gets evaluation results instantly
+      BillingService.recordEvaluationConsumption(
         user.organizationId!,
         user.id,
         evalResponse.usage
-      );
-
-      // Step 5: Broadcast Live Telemetry to Super Admin SSE
-      telemetryService.broadcastEvaluation({
-        rawCostUsd: billing.rawCostUsd,
-        billedCostUsd: billing.billedCostUsd,
-        profitMarginUsd: Number((billing.billedCostUsd - billing.rawCostUsd).toFixed(6)),
-        latencyMs: evalResponse.usage.latencyMs,
-        totalTokens: evalResponse.usage.inputTokens + evalResponse.usage.outputTokens,
-      });
+      )
+        .then((billing) => {
+          telemetryService.broadcastEvaluation({
+            rawCostUsd: billing.rawCostUsd,
+            billedCostUsd: billing.billedCostUsd,
+            profitMarginUsd: Number((billing.billedCostUsd - billing.rawCostUsd).toFixed(6)),
+            latencyMs: evalResponse.usage.latencyMs,
+            totalTokens: evalResponse.usage.inputTokens + evalResponse.usage.outputTokens,
+          });
+        })
+        .catch((billingErr) => {
+          request.log.error(billingErr, 'Background billing ledger recording failed');
+        });
 
       // Constraint 5: Recruiters must NEVER see token costs or quota gauges!
       return reply.send({

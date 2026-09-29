@@ -67,6 +67,16 @@ Here is the Job Description:
 `.trim();
 
 export class PromptService {
+  private static templateCache = new Map<string, { template: string; expiresAt: number }>();
+
+  static clearCache(organizationId?: string) {
+    if (organizationId) {
+      this.templateCache.delete(organizationId);
+    } else {
+      this.templateCache.clear();
+    }
+  }
+
   /**
    * Resolves prompt using waterfall hierarchy:
    * 1. Organization custom_eval_prompt
@@ -74,6 +84,12 @@ export class PromptService {
    * 3. Fallback to DEFAULT_GLOBAL_EVAL_PROMPT
    */
   static async resolveTemplate(organizationId: string): Promise<string> {
+    const cached = this.templateCache.get(organizationId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.template;
+    }
+
+    let resolved = DEFAULT_GLOBAL_EVAL_PROMPT;
     const [org] = await db
       .select({ customEvalPrompt: organizations.customEvalPrompt })
       .from(organizations)
@@ -81,20 +97,26 @@ export class PromptService {
       .limit(1);
 
     if (org && org.customEvalPrompt && org.customEvalPrompt.trim().length > 0) {
-      return org.customEvalPrompt;
+      resolved = org.customEvalPrompt;
+    } else {
+      const [globalSetting] = await db
+        .select({ value: platformSettings.value })
+        .from(platformSettings)
+        .where(eq(platformSettings.key, 'GLOBAL_EVAL_PROMPT'))
+        .limit(1);
+
+      if (globalSetting && globalSetting.value && globalSetting.value.trim().length > 0) {
+        resolved = globalSetting.value;
+      }
     }
 
-    const [globalSetting] = await db
-      .select({ value: platformSettings.value })
-      .from(platformSettings)
-      .where(eq(platformSettings.key, 'GLOBAL_EVAL_PROMPT'))
-      .limit(1);
+    // Cache template for 60 seconds per organization to eliminate DB latency on repeated evaluations
+    this.templateCache.set(organizationId, {
+      template: resolved,
+      expiresAt: Date.now() + 60_000,
+    });
 
-    if (globalSetting && globalSetting.value && globalSetting.value.trim().length > 0) {
-      return globalSetting.value;
-    }
-
-    return DEFAULT_GLOBAL_EVAL_PROMPT;
+    return resolved;
   }
 
   /**

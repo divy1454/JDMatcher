@@ -1518,3 +1518,156 @@
     transform: scale(1) translateY(0);
   }
 }
+
+/* Dynamic Live Evaluation Progress Card */
+.jdm-eval-progress-card {
+  margin-top: 14px;
+  background: #0f172a;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.6), 0 0 20px rgba(99, 102, 241, 0.15);
+  animation: jdmSlideDown 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.jdm-eval-progress-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #6366f1, #10b981, #06b6d4, #6366f1);
+  background-size: 200% 100%;
+  animation: jdmGradientMove 1.8s linear infinite;
+}
+
+@keyframes jdmGradientMove {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
+}
+
+.jdm-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.jdm-progress-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jdm-progress-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: -0.01em;
+}
+
+.jdm-progress-model-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.jdm-progress-timer {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #10b981;
+}
+
+.jdm-progress-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.jdm-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  transition: all 0.2s ease;
+}
+
+.jdm-progress-step.is-done {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(6, 78, 59, 0.2);
+  color: #34d399;
+}
+
+.jdm-progress-step.is-active {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.12);
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.jdm-progress-step.is-pending {
+  color: #64748b;
+  opacity: 0.7;
+}
+
+.jdm-step-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.jdm-step-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(99, 102, 241, 0.3);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: jdmSpin 0.7s linear infinite;
+}
+
+/* Shimmer Skeleton Placeholder */
+.jdm-shimmer-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(51, 65, 85, 0.8);
+}
+
+.jdm-shimmer-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1e293b 100%);
+  background-size: 200% 100%;
+  animation: jdmShimmer 1.4s infinite;
+}
+
+.jdm-shimmer-hero {
+  height: 38px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #1e293b 0%, #2d3748 50%, #1e293b 100%);
+  background-size: 200% 100%;
+  animation: jdmShimmer 1.4s infinite;
+}
+
+@keyframes jdmShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+

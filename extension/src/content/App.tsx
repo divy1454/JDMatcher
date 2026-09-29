@@ -44,8 +44,26 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   // Evaluation & Storage State
   const [evalState, setEvalState] = useState<StoredEvaluationState>({ status: 'idle' });
+  const [evalElapsedSeconds, setEvalElapsedSeconds] = useState<number>(0);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    let interval: any = null;
+    if (evalState.status === 'loading') {
+      const startTime = Date.now();
+      setEvalElapsedSeconds(0);
+      interval = setInterval(() => {
+        setEvalElapsedSeconds(Number(((Date.now() - startTime) / 1000).toFixed(1)));
+      }, 100);
+    } else {
+      setEvalElapsedSeconds(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [evalState.status]);
+
   const DEFAULT_API_URL = 'https://jdmatcher-be.onrender.com';
   const DEFAULT_FRONTEND_URL = 'https://jdmatcher-fe.onrender.com';
 
@@ -1253,6 +1271,71 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 </>
               )}
             </button>
+
+            {/* Real-Time Evaluation Progress Card */}
+            {evalState.status === 'loading' && (
+              <div className="jdm-eval-progress-card">
+                <div className="jdm-progress-header">
+                  <div className="jdm-progress-title-wrap">
+                    <span className="jdm-spinner" style={{ width: '13px', height: '13px' }} />
+                    <span className="jdm-progress-title">Evaluating Candidate Against JD</span>
+                    <span className="jdm-progress-model-badge">gemini-3.5-flash-lite</span>
+                  </div>
+                  <span className="jdm-progress-timer">{evalElapsedSeconds.toFixed(1)}s</span>
+                </div>
+
+                <div className="jdm-progress-steps">
+                  <div className={`jdm-progress-step ${evalElapsedSeconds >= 0.4 ? 'is-done' : 'is-active'}`}>
+                    <div className="jdm-step-icon">
+                      {evalElapsedSeconds >= 0.4 ? '✓' : <div className="jdm-step-spinner" />}
+                    </div>
+                    <span>1. Analyzing Technical Requirements & Deliverables</span>
+                  </div>
+
+                  <div
+                    className={`jdm-progress-step ${
+                      evalElapsedSeconds >= 1.1
+                        ? 'is-done'
+                        : evalElapsedSeconds >= 0.4
+                        ? 'is-active'
+                        : 'is-pending'
+                    }`}
+                  >
+                    <div className="jdm-step-icon">
+                      {evalElapsedSeconds >= 1.1 ? (
+                        '✓'
+                      ) : evalElapsedSeconds >= 0.4 ? (
+                        <div className="jdm-step-spinner" />
+                      ) : (
+                        '○'
+                      )}
+                    </div>
+                    <span>2. Checking Basic Eligibility (Visa, Clearance, Overqual)</span>
+                  </div>
+
+                  <div
+                    className={`jdm-progress-step ${
+                      evalElapsedSeconds >= 1.1 ? 'is-active' : 'is-pending'
+                    }`}
+                  >
+                    <div className="jdm-step-icon">
+                      {evalElapsedSeconds >= 1.1 ? (
+                        <div className="jdm-step-spinner" />
+                      ) : (
+                        '○'
+                      )}
+                    </div>
+                    <span>3. Calculating Natural Fit Stack Alignment</span>
+                  </div>
+                </div>
+
+                <div className="jdm-shimmer-box">
+                  <div className="jdm-shimmer-hero" />
+                  <div className="jdm-shimmer-line" style={{ width: '90%' }} />
+                  <div className="jdm-shimmer-line" style={{ width: '75%' }} />
+                </div>
+              </div>
+            )}
 
             {/* Lockout & Error Alerts */}
             {evalState.status === 'locked_402' && (

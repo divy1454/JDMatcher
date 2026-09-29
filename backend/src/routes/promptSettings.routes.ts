@@ -4,7 +4,7 @@ import { db } from '../db/index.js';
 import { platformSettings, organizations } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
-import { DEFAULT_GLOBAL_EVAL_PROMPT } from '../services/promptService.js';
+import { PromptService, DEFAULT_GLOBAL_EVAL_PROMPT } from '../services/promptService.js';
 
 const promptPayloadSchema = z.object({
   prompt: z.string().min(20, 'Prompt must be at least 20 characters'),
@@ -58,6 +58,8 @@ export const promptSettingsRoutes: FastifyPluginAsync = async (fastify: FastifyI
           },
         })
         .returning();
+
+      PromptService.clearCache();
 
       return reply.send({
         success: true,
@@ -117,6 +119,8 @@ export const promptSettingsRoutes: FastifyPluginAsync = async (fastify: FastifyI
           id: organizations.id,
           customEvalPrompt: organizations.customEvalPrompt,
         });
+
+      PromptService.clearCache(user.organizationId!);
 
       return reply.send({
         success: true,
