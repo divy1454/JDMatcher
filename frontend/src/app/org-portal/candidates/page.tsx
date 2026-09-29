@@ -14,6 +14,8 @@ import {
   UserCheck,
   Briefcase,
   UserPlus,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface CandidateItem {
@@ -42,9 +44,21 @@ export default function CandidatesPage() {
   const [search, setSearch] = useState('');
   const [recruiterFilter, setRecruiterFilter] = useState('');
   const [expandedResumeId, setExpandedResumeId] = useState<string | null>(null);
+  const [copiedResumeId, setCopiedResumeId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [reassigningId, setReassigningId] = useState<string | null>(null);
+
+  const handleCopyResume = async (resumeText: string, id: string) => {
+    if (!resumeText) return;
+    try {
+      await navigator.clipboard.writeText(resumeText);
+      setCopiedResumeId(id);
+      setTimeout(() => setCopiedResumeId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy resume:', err);
+    }
+  };
 
   // Form State - strictly Full Name, Primary Role, Recruiter Assign, Raw Resume
   const [formData, setFormData] = useState({
@@ -288,12 +302,32 @@ export default function CandidatesPage() {
                   </div>
                 </div>
 
-                {/* Hidden / Collapsible Raw Resume Block */}
+                {/* Hidden / Collapsible Raw Resume Block with Copy Button */}
                 {isExpanded && (
                   <div className="mt-4 border-t border-slate-800/80 pt-4">
-                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      Raw Candidate Resume (Fed into Natural Fit Blueprint)
-                    </label>
+                    <div className="mb-2 flex items-center justify-between">
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Raw Candidate Resume (Fed into Natural Fit Blueprint)
+                      </label>
+                      <button
+                        onClick={() => handleCopyResume(candidate.rawResumeText || '', candidate.id)}
+                        disabled={!candidate.rawResumeText}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition disabled:opacity-50"
+                        title="Copy full candidate resume"
+                      >
+                        {copiedResumeId === candidate.id ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            <span className="font-semibold">Copied Resume!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5" />
+                            <span>Copy Resume</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs text-slate-300">
                       {candidate.rawResumeText || 'Loading resume text...'}
                     </pre>

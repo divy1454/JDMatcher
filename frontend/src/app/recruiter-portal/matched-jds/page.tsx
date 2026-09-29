@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiRequest } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import * as XLSX from 'xlsx';
 import {
   Briefcase,
   Search,
@@ -14,6 +15,12 @@ import {
   XCircle,
   Clock,
   Sparkles,
+  Building2,
+  Download,
+  Copy,
+  Check,
+  User,
+  RotateCcw,
 } from 'lucide-react';
 
 interface MatchedJdItem {
@@ -30,17 +37,58 @@ interface MatchedJdItem {
   appliedAt: string;
 }
 
+interface CandidateOption {
+  id: string;
+  fullName: string;
+}
+
+function getDisplayCompany(company: string | null, rawJdText?: string): string {
+  if (company && company !== 'Confidential / Client' && company !== 'Client') {
+    return company;
+  }
+  if (rawJdText) {
+    const compMatch = rawJdText.match(/(?:company|client|employer|organization|at|with)\s*[:\-–]?\s*([A-Z][A-Za-z0-9&.\s]{2,35})/);
+    if (compMatch && compMatch[1]) return compMatch[1].trim();
+  }
+  return company || 'Direct Client / Vendor';
+}
+
+function getDisplayRole(jobTitle: string, rawJdText?: string): string {
+  if (jobTitle && jobTitle !== 'Opportunity' && jobTitle !== 'Software Opportunity' && jobTitle !== 'Job Application' && jobTitle !== 'Not Specified') {
+    return jobTitle;
+  }
+  if (rawJdText) {
+    const titleMatch = rawJdText.match(/(?:job\s*title|role|position)\s*[:\-–]?\s*([^\n\r,\.]{3,50})/i);
+    if (titleMatch && titleMatch[1]) return titleMatch[1].trim();
+    const firstLine = rawJdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 60);
+    if (firstLine && firstLine.length > 4 && !firstLine.toLowerCase().includes('job description')) {
+      return firstLine;
+    }
+  }
+  return jobTitle || 'Software Opportunity';
+}
+
 export default function RecruiterMatchedJdsPage() {
   const [items, setItems] = useState<MatchedJdItem[]>([]);
+  const [candidates, setCandidates] = useState<CandidateOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [selectedCandidate, setSelectedCandidate] = useState('');
   const [verdictFilter, setVerdictFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [copiedJdId, setCopiedJdId] = useState<string | null>(null);
+  const [copiedReasoningId, setCopiedReasoningId] = useState<string | null>(null);
 
   const fetchMatchedJds = async () => {
     try {
-      const data = await apiRequest('/analyze/matched-jds');
-      setItems(data);
+      const [jdsData, candidatesData] = await Promise.all([
+        apiRequest('/analyze/matched-jds'),
+        apiRequest('/candidates').catch(() => []),
+      ]);
+      setItems(jdsData);
+      if (Array.isArray(candidatesData)) {
+        setCandidates(candidatesData);
+      }
     } catch (err) {
       console.error('Failed to load matched JDs:', err);
     } finally {
@@ -52,14 +100,95 @@ export default function RecruiterMatchedJdsPage() {
     fetchMatchedJds();
   }, []);
 
-  const filtered = items.filter((item) => {
-    const matchesSearch =
-      item.jobTitle.toLowerCase().includes(search.toLowerCase()) ||
-      (item.candidateName && item.candidateName.toLowerCase().includes(search.toLowerCase())) ||
-      (item.companyOrClient && item.companyOrClient.toLowerCase().includes(search.toLowerCase()));
-    const matchesVerdict = !verdictFilter || item.verdict === verdictFilter;
-    return matchesSearch && matchesVerdict;
+  const handleCopyText = async (text: string, id: string, type: 'jd' | 'reasoning') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (type === 'jd') {
+        setCopiedJdId(id);
+        setTimeout(() => setCopiedJdId(null), 2000);
+      } else {
+        setCopiedReasoningId(id);
+        setTimeout(() => setCopiedReasoningId(null), 2000);
+      }
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (filtered.length === 0) return;
+
+    const exportRows = filtered.map((item) => ({
+      'Role / Position': getDisplayRole(item.jobTitle, item.rawJdText),
+      'Company / Client': getDisplayCompany(item.companyOrClient, item.rawJdText),
+      'Candidate': item.candidateName || 'N/A',
+      'Verdict': item.verdict,
+      'Match Score (%)': item.matchScore,
+      'Date Evaluated': formatDate(item.appliedAt),
+      'Job URL': item.jobUrl || 'N/A',
+      'AI Evaluation Reasoning': item.matchReasoning,
+      'Full Job Description': item.rawJdText,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    worksheet['!cols'] = [
+      { wch: 30 }, // Role
+      { wch: 25 }, // Company
+      { wch: 22 }, // Candidate
+      { wch: 10 }, // Verdict
+      { wch: 15 }, // Match Score
+      { wch: 20 }, // Date
+      { wch: 35 }, // URL
+      { wch: 60 }, // Reasoning
+      { wch: 70 }, // Raw JD
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Matched JDs');
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(workbook, `Matched_JDs_${today}.xlsx`);
+  };
+
+  const resetFilters = () => {
+    setSearch('');
+    setSelectedCandidate('');
+    setVerdictFilter('');
+  };
+
+  // Compile candidate options from both API and items
+  const uniqueCandidateMap = new Map<string, string>();
+  candidates.forEach((c) => uniqueCandidateMap.set(c.id, c.fullName));
+  items.forEach((item) => {
+    if (item.candidateId && item.candidateName) {
+      uniqueCandidateMap.set(item.candidateId, item.candidateName);
+    }
   });
+
+  const filtered = items.filter((item) => {
+    const role = getDisplayRole(item.jobTitle, item.rawJdText).toLowerCase();
+    const company = getDisplayCompany(item.companyOrClient, item.rawJdText).toLowerCase();
+    const candidate = (item.candidateName || '').toLowerCase();
+    const rawJd = (item.rawJdText || '').toLowerCase();
+    const q = search.toLowerCase();
+
+    const matchesSearch =
+      !q ||
+      role.includes(q) ||
+      company.includes(q) ||
+      candidate.includes(q) ||
+      rawJd.includes(q);
+
+    const matchesCandidate =
+      !selectedCandidate ||
+      item.candidateId === selectedCandidate ||
+      item.candidateName === selectedCandidate;
+
+    const matchesVerdict = !verdictFilter || item.verdict === verdictFilter;
+
+    return matchesSearch && matchesCandidate && matchesVerdict;
+  });
+
+  const hasActiveFilters = Boolean(search || selectedCandidate || verdictFilter);
 
   return (
     <div className="space-y-6">
@@ -73,34 +202,83 @@ export default function RecruiterMatchedJdsPage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-400">
-            Repository of job evaluations saved via the JDMatcher Chrome Extension. Review match scores, Gemini reasoning, and candidate alignment.
+            Repository of job evaluations saved via the JDMatcher Chrome Extension. Filter, review match scores, export to Excel, and copy details.
           </p>
         </div>
+
+        {/* Export to Excel Button */}
+        <button
+          onClick={handleExportExcel}
+          disabled={filtered.length === 0}
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Export matched jobs to Excel (.xlsx)"
+        >
+          <Download className="h-4 w-4" />
+          <span>Export to Excel ({filtered.length})</span>
+        </button>
       </div>
 
-      {/* Search and Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex flex-1 items-center rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 backdrop-blur">
-          <Search className="h-4 w-4 text-slate-500" />
+      {/* Search and Filters Bar */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+        {/* Search Bar */}
+        <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 backdrop-blur sm:col-span-5">
+          <Search className="h-4 w-4 text-slate-500 shrink-0" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by job title, candidate name, or client..."
+            placeholder="Search by job title, company, candidate, or keywords..."
             className="ml-2.5 w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none"
           />
         </div>
 
+        {/* Filter by Candidate */}
+        <div className="sm:col-span-3">
+          <div className="relative">
+            <select
+              value={selectedCandidate}
+              onChange={(e) => setSelectedCandidate(e.target.value)}
+              className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
+            >
+              <option value="">All Candidates ({uniqueCandidateMap.size})</option>
+              {Array.from(uniqueCandidateMap.entries()).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
+          </div>
+        </div>
+
         {/* Verdict Filter */}
-        <select
-          value={verdictFilter}
-          onChange={(e) => setVerdictFilter(e.target.value)}
-          className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2.5 text-sm text-slate-300 outline-none"
-        >
-          <option value="">All Verdicts</option>
-          <option value="APPLY">APPLY Only</option>
-          <option value="SKIP">SKIP Only</option>
-        </select>
+        <div className="sm:col-span-2">
+          <div className="relative">
+            <select
+              value={verdictFilter}
+              onChange={(e) => setVerdictFilter(e.target.value)}
+              className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
+            >
+              <option value="">All Verdicts</option>
+              <option value="APPLY">APPLY Only</option>
+              <option value="SKIP">SKIP Only</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
+          </div>
+        </div>
+
+        {/* Reset Filters */}
+        <div className="sm:col-span-2 flex items-center">
+          {hasActiveFilters && (
+            <button
+              onClick={resetFilters}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-800 bg-slate-800/50 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:bg-slate-800 hover:text-white transition"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Reset Filters</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Matched JDs List */}
@@ -113,6 +291,8 @@ export default function RecruiterMatchedJdsPage() {
           {filtered.map((item) => {
             const isExpanded = expandedId === item.id;
             const isApply = item.verdict === 'APPLY';
+            const displayRole = getDisplayRole(item.jobTitle, item.rawJdText);
+            const displayCompany = getDisplayCompany(item.companyOrClient, item.rawJdText);
 
             return (
               <div
@@ -120,8 +300,8 @@ export default function RecruiterMatchedJdsPage() {
                 className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl transition hover:border-slate-700"
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-3">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2.5">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
                           isApply
@@ -137,17 +317,28 @@ export default function RecruiterMatchedJdsPage() {
                         Score: <span className={item.matchScore >= 75 ? 'text-emerald-400' : 'text-amber-400'}>{item.matchScore}/100</span>
                       </span>
 
-                      <h3 className="text-base font-bold text-white">{item.jobTitle}</h3>
+                      {/* Prominent Extracted Company Badge */}
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/25 px-2.5 py-0.5 text-xs font-semibold text-indigo-300">
+                        <Building2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                        <span>{displayCompany}</span>
+                      </span>
+                    </div>
+
+                    {/* Prominent Extracted Role Heading */}
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <Briefcase className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <h3 className="text-base font-bold text-white tracking-tight">
+                        {displayRole}
+                      </h3>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                      <span>Candidate: <b className="text-slate-200">{item.candidateName}</b></span>
-                      {item.companyOrClient && (
-                        <>
-                          <span>•</span>
-                          <span>Client: <b className="text-slate-200">{item.companyOrClient}</b></span>
-                        </>
-                      )}
+                      <span className="flex items-center gap-1">
+                        <User className="h-3 w-3 text-slate-500" />
+                        Candidate: <b className="text-slate-200">{item.candidateName || 'Bench Candidate'}</b>
+                      </span>
+                      <span>•</span>
+                      <span>Company / Client: <b className="text-indigo-300 font-semibold">{displayCompany}</b></span>
                       <span>•</span>
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
@@ -174,7 +365,7 @@ export default function RecruiterMatchedJdsPage() {
                       className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
                     >
                       <FileText className="h-3.5 w-3.5 text-emerald-400" />
-                      <span>{isExpanded ? 'Hide Details' : 'View AI Reasoning'}</span>
+                      <span>{isExpanded ? 'Hide Details' : 'View AI Reasoning & JD'}</span>
                       {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                     </button>
                   </div>
@@ -183,23 +374,67 @@ export default function RecruiterMatchedJdsPage() {
                 {/* Expanded AI Evaluation Reasoning and Raw JD */}
                 {isExpanded && (
                   <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 pt-4 border-t border-slate-800/80">
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <div className="mb-2 flex items-center gap-2 text-xs font-bold text-violet-400">
-                        <Sparkles className="h-4 w-4" />
-                        <span>AI Reasoning & Evaluation Criteria</span>
+                    {/* Left: AI Reasoning */}
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col justify-between">
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs font-bold text-violet-400">
+                            <Sparkles className="h-4 w-4" />
+                            <span>AI Reasoning & Evaluation</span>
+                          </div>
+                          <button
+                            onClick={() => handleCopyText(item.matchReasoning, item.id, 'reasoning')}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition"
+                            title="Copy AI Reasoning"
+                          >
+                            {copiedReasoningId === item.id ? (
+                              <>
+                                <Check className="h-3.5 w-3.5 text-emerald-400" />
+                                <span className="text-emerald-400 font-semibold">Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3.5 w-3.5 text-slate-400" />
+                                <span>Copy Reasoning</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-sans text-xs text-slate-300 leading-relaxed scrollbar-thin">
+                          {item.matchReasoning}
+                        </pre>
                       </div>
-                      <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap font-sans text-xs text-slate-300 leading-relaxed scrollbar-thin">
-                        {item.matchReasoning}
-                      </pre>
                     </div>
 
-                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                      <div className="mb-2 text-xs font-bold text-slate-400">
-                        Raw Job Description Text
+                    {/* Right: Full Raw JD Text with Copy Button */}
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col justify-between">
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-400">
+                            Raw Job Description Text
+                          </span>
+                          <button
+                            onClick={() => handleCopyText(item.rawJdText, item.id, 'jd')}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition"
+                            title="Copy full raw job description text"
+                          >
+                            {copiedJdId === item.id ? (
+                              <>
+                                <Check className="h-3.5 w-3.5 text-emerald-400" />
+                                <span className="font-semibold">Copied JD!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3.5 w-3.5" />
+                                <span>Copy JD</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-slate-400 leading-relaxed scrollbar-thin">
+                          {item.rawJdText}
+                        </pre>
                       </div>
-                      <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-slate-400 leading-relaxed scrollbar-thin">
-                        {item.rawJdText}
-                      </pre>
                     </div>
                   </div>
                 )}
@@ -210,7 +445,21 @@ export default function RecruiterMatchedJdsPage() {
           {filtered.length === 0 && (
             <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500">
               <Briefcase className="mx-auto h-8 w-8 text-slate-600 mb-2" />
-              <p className="text-sm">No matched JDs found matching your filter criteria.</p>
+              <p className="text-sm font-medium text-slate-400">No matched JDs found</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {hasActiveFilters
+                  ? 'Try adjusting your search query, candidate filter, or verdict filter.'
+                  : 'Start matching jobs using the Chrome Extension and click "Save as Applied" to view them here.'}
+              </p>
+              {hasActiveFilters && (
+                <button
+                  onClick={resetFilters}
+                  className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 hover:underline"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Clear all filters</span>
+                </button>
+              )}
             </div>
           )}
         </div>

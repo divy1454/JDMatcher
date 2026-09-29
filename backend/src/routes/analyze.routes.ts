@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { candidates, matchedJds } from '../db/schema.js';
+import { candidates, matchedJds, users } from '../db/schema.js';
 import { eq, and, desc } from 'drizzle-orm';
 import { authGuard } from '../middleware/authGuard.js';
 import { deviceGuard } from '../middleware/deviceGuard.js';
@@ -65,8 +65,17 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const promptVariables = PromptService.buildVariables(candidate, jdText);
       const hydratedPrompt = PromptService.hydratePrompt(promptTemplate, promptVariables);
 
-      // Step 3: Inference via Gemini
-      const evalResponse = await GeminiService.evaluate(hydratedPrompt);
+      // Step 3: Inference via Gemini 3.5 Flash-Lite strictly
+      let evalResponse;
+      try {
+        evalResponse = await GeminiService.evaluate(hydratedPrompt);
+      } catch (aiErr: any) {
+        request.log.error(aiErr, 'AI Evaluation failed');
+        return reply.status(502).send({
+          error: 'AI_EVALUATION_FAILED',
+          message: aiErr.message || 'Gemini 3.5 Flash-Lite evaluation failed. Please check AI key or service availability.',
+        });
+      }
 
       // Step 4: Token Accounting & Offline Billing ledger
       // Always record every evaluation so that evaluation count is 100% accurate
@@ -143,14 +152,33 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         return reply.status(404).send({ error: 'NOT_FOUND', message: 'Candidate not found or access denied' });
       }
 
+      let finalCompany = data.companyOrClient;
+      if ((!finalCompany || finalCompany === 'Confidential / Client' || finalCompany === 'Client') && data.rawJdText) {
+        const compMatch = data.rawJdText.match(/(?:company|client|employer|organization|at|with)\s*[:\-–]?\s*([A-Z][A-Za-z0-9&.\s]{2,35})/);
+        if (compMatch && compMatch[1]) finalCompany = compMatch[1].trim();
+      }
+
+      let finalJobTitle = data.jobTitle;
+      if ((!finalJobTitle || finalJobTitle === 'Opportunity' || finalJobTitle === 'Software Opportunity' || finalJobTitle === 'Job Application') && data.rawJdText) {
+        const titleMatch = data.rawJdText.match(/(?:job\s*title|role|position)\s*[:\-–]?\s*([^\n\r,\.]{3,50})/i);
+        if (titleMatch && titleMatch[1]) {
+          finalJobTitle = titleMatch[1].trim();
+        } else {
+          const firstLine = data.rawJdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 60);
+          if (firstLine && firstLine.length > 4 && !firstLine.toLowerCase().includes('job description')) {
+            finalJobTitle = firstLine;
+          }
+        }
+      }
+
       const [newMatchedJd] = await db
         .insert(matchedJds)
         .values({
           organizationId: user.organizationId!,
           recruiterId: user.id,
           candidateId: data.candidateId,
-          jobTitle: data.jobTitle,
-          companyOrClient: data.companyOrClient || null,
+          jobTitle: finalJobTitle || data.jobTitle,
+          companyOrClient: finalCompany || null,
           jobUrl: data.jobUrl || null,
           rawJdText: data.rawJdText,
           verdict: data.verdict,
@@ -180,15 +208,32 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         });
       }
 
-      // Pagination support
-      const query = request.query as { limit?: string; offset?: string };
-      const limit = Math.min(Math.max(parseInt(query.limit || '50', 10) || 50, 1), 200);
+      // Query and filter support (candidateId, recruiterId, verdict, limit, offset)
+      const query = request.query as {
+        limit?: string;
+        offset?: string;
+        candidateId?: string;
+        recruiterId?: string;
+        verdict?: string;
+      };
+      const limit = Math.min(Math.max(parseInt(query.limit || '100', 10) || 100, 1), 500);
       const offset = Math.max(parseInt(query.offset || '0', 10) || 0, 0);
 
       const conditions = [eq(matchedJds.organizationId, user.organizationId!)];
+
       // Recruiter isolation: Recruiters can only access matched JDs they personally evaluated
       if (user.role === 'recruiter') {
         conditions.push(eq(matchedJds.recruiterId, user.id));
+      } else if (query.recruiterId) {
+        conditions.push(eq(matchedJds.recruiterId, query.recruiterId));
+      }
+
+      if (query.candidateId) {
+        conditions.push(eq(matchedJds.candidateId, query.candidateId));
+      }
+
+      if (query.verdict && (query.verdict === 'APPLY' || query.verdict === 'SKIP')) {
+        conditions.push(eq(matchedJds.verdict, query.verdict as any));
       }
 
       const list = await db
@@ -197,6 +242,7 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
           candidateId: matchedJds.candidateId,
           candidateName: candidates.fullName,
           recruiterId: matchedJds.recruiterId,
+          recruiterName: users.fullName,
           jobTitle: matchedJds.jobTitle,
           companyOrClient: matchedJds.companyOrClient,
           jobUrl: matchedJds.jobUrl,
@@ -208,6 +254,7 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         })
         .from(matchedJds)
         .leftJoin(candidates, eq(matchedJds.candidateId, candidates.id))
+        .leftJoin(users, eq(matchedJds.recruiterId, users.id))
         .where(and(...conditions))
         .orderBy(desc(matchedJds.appliedAt))
         .limit(limit)

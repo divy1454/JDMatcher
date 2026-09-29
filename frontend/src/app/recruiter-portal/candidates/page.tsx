@@ -14,6 +14,7 @@ import {
   X,
   Check,
   Trash2,
+  Copy,
 } from 'lucide-react';
 
 interface CandidateItem {
@@ -31,6 +32,18 @@ export default function RecruiterCandidatesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [expandedResumeId, setExpandedResumeId] = useState<string | null>(null);
+  const [copiedResumeId, setCopiedResumeId] = useState<string | null>(null);
+
+  const handleCopyResume = async (resumeText: string, id: string) => {
+    if (!resumeText) return;
+    try {
+      await navigator.clipboard.writeText(resumeText);
+      setCopiedResumeId(id);
+      setTimeout(() => setCopiedResumeId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy resume:', err);
+    }
+  };
 
   // Modal State for Add & Edit
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -250,12 +263,33 @@ export default function RecruiterCandidatesPage() {
                   </div>
                 </div>
 
-                {/* Expanded Raw Resume Text */}
+                {/* Expanded Raw Resume Text with Copy Button */}
                 {isExpanded && (
                   <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
                     <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-400">
-                      <span>Candidate Raw Resume</span>
-                      <span className="font-mono text-[10px] text-slate-500">ID: {candidate.id}</span>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-emerald-400" />
+                        <span>Candidate Raw Resume</span>
+                        <span className="font-mono text-[10px] text-slate-500">ID: {candidate.id}</span>
+                      </div>
+                      <button
+                        onClick={() => handleCopyResume(candidate.rawResumeText || '', candidate.id)}
+                        disabled={!candidate.rawResumeText}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition disabled:opacity-50"
+                        title="Copy full candidate resume"
+                      >
+                        {copiedResumeId === candidate.id ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            <span className="font-semibold">Copied Resume!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5" />
+                            <span>Copy Resume</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                     <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-slate-300 leading-relaxed scrollbar-thin">
                       {candidate.rawResumeText || 'No resume text available for this candidate.'}

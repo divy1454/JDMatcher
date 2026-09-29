@@ -106,6 +106,49 @@ async function runTestSuite() {
   assert(evalResult.result.candidateFitCheck && Array.isArray(evalResult.result.candidateFitCheck.alignedSkills), 'Evaluation provides aligned skills array');
   assert(evalResult.usage.inputTokens > 0 && evalResult.usage.outputTokens > 0, 'Accurate token usage recorded for ledger');
 
+  // TEST 7: Gemini 7-Section Markdown Demo Output Parsing Fidelity
+  console.log('\n--- TEST GROUP 7: GEMINI 7-SECTION MARKDOWN PARSER FIDELITY ---');
+  const demoOutput = `
+**1. Eligibility Check**
+Pass. No citizenship, clearance, or certification requirements listed. Not overqualified (JD asks for 2–3 yrs; he has ~4). Hybrid in Orlando, FL is a location item to confirm (relocation/local status).
+
+**2. Profile Match Assessment**
+**Moderate Match**
+
+**3. Candidate Fit Check**
+- **Aligns:** Python, SQL, LLMs, Text-to-SQL, prompt engineering, LLM tool-calling, response validation and retry logic, Docker, AWS (Lambda, DynamoDB), Azure, CI/CD, code reviews, testing, Agile.
+- **Gaps:** No RAG or vector databases (Pinecone, FAISS, etc.) on the resume, which is a core requirement. No REST API or microservice building called out. No named LLM providers (OpenAI, Anthropic, Gemini, Azure OpenAI). No multi-agent frameworks, MCP, LLM observability tools, or Kubernetes.
+- **Profile skew:** Much of his background is data engineering and classic ML rather than GenAI application engineering.
+
+**4. Go / No-Go Decision**
+**Apply.** The Eli Lilly WrenAI and LLM orchestration work is real GenAI production experience, and experience level is right. Expect the RAG gap to be the screening risk.
+
+**5. Natural Fit Highlights**
+- Encora / Eli Lilly: WrenAI with a Cortex-hosted LLM platform, multi-database Text-to-SQL, prompt engineering, schema grounding, SQL validation.
+- Python AI orchestration with modular LLM tool-calling, prompt configuration, response validation, retry logic, and Dockerized deployment.
+- AWS Lambda and DynamoDB production work.
+- CI/CD, MLflow, and model monitoring experience from Cruise Dyno.
+- MS in Artificial Intelligence.
+
+**6. Application Questions**
+None provided.
+
+**7. Other Notes**
+- Over 100 applicants, so submit early. Mike Baio (AI Recruiter, job poster) is a direct outreach option.
+- Confirm with the candidate: any RAG or vector DB exposure not on the resume, and Orlando hybrid/relocation availability. Capco is FS consulting, so confirm work authorization fit with the vendor if relevant.
+`;
+
+  const parsedDemo = (GeminiService as any).parseEvaluationOutput(demoOutput, 'Job Title: Senior GenAI Engineer at Capco');
+  assert(parsedDemo.verdict === 'APPLY', 'Parsed demo verdict is APPLY');
+  assert(parsedDemo.matchAssessment === 'Moderate Match', 'Parsed demo matchAssessment is Moderate Match');
+  assert(parsedDemo.isEligible === true, 'Parsed demo isEligible is true');
+  assert(parsedDemo.candidateFitCheck.alignedSkills.length >= 10, 'Extracted >= 10 aligned skills from demo');
+  assert(parsedDemo.candidateFitCheck.alignedSkills.includes('AWS (Lambda, DynamoDB)'), 'Preserved AWS (Lambda, DynamoDB) without splitting on nested comma');
+  assert(parsedDemo.candidateFitCheck.gaps.length >= 3, 'Extracted >= 3 critical gaps from demo');
+  assert(parsedDemo.naturalFitHighlights.length === 5, 'Extracted 5 natural fit highlights from demo');
+  assert(parsedDemo.applicationQuestions.length === 0, 'Handled None provided application questions correctly');
+  assert(parsedDemo.otherNotes.includes('Over 100 applicants'), 'Extracted strategic notes correctly');
+
   // SUMMARY
   console.log('\n===============================================================');
   console.log(`   TEST RESULTS: ${passed} PASSED | ${failed} FAILED           `);

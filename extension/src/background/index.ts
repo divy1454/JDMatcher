@@ -264,11 +264,21 @@ async function handleEvaluation(payload: {
   await chrome.storage.local.set({ evaluationState: loadingState });
 
   try {
+    if (!token) {
+      const errorState: StoredEvaluationState = {
+        ...loadingState,
+        status: 'error',
+        errorMessage: 'Please sign into the Recruiter Portal before running evaluations.',
+      };
+      await chrome.storage.local.set({ evaluationState: errorState });
+      return { success: false, error: errorState.errorMessage };
+    }
+
     const response = await fetch(`${baseUrl}/analyze/eval`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token || ''}`,
+        'Authorization': `Bearer ${token}`,
         'x-device-id': deviceId,
       },
       body: JSON.stringify({
@@ -279,6 +289,17 @@ async function handleEvaluation(payload: {
         companyOrClient: payload.companyOrClient,
       }),
     });
+
+    // Handle 401 Unauthorized / Token Expired
+    if (response.status === 401) {
+      const errorState: StoredEvaluationState = {
+        ...loadingState,
+        status: 'error',
+        errorMessage: 'Recruiter session expired. Please sign into the Recruiter Portal to renew your session.',
+      };
+      await chrome.storage.local.set({ evaluationState: errorState });
+      return { success: false, error: errorState.errorMessage };
+    }
 
     // Handle 402 Hard Deposit Lock
     if (response.status === 402) {
@@ -304,12 +325,24 @@ async function handleEvaluation(payload: {
       return { success: false, status: 'locked_device', error: lockedState.errorMessage };
     }
 
+    // Handle 502 / 503 AI Failures
+    if (response.status === 502 || response.status === 503) {
+      const errData = await response.json().catch(() => ({}));
+      const errorState: StoredEvaluationState = {
+        ...loadingState,
+        status: 'error',
+        errorMessage: errData.message || 'Gemini 3.5 Flash-Lite evaluation failed. Please verify API key and service availability.',
+      };
+      await chrome.storage.local.set({ evaluationState: errorState });
+      return { success: false, error: errorState.errorMessage };
+    }
+
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
       const errorState: StoredEvaluationState = {
         ...loadingState,
         status: 'error',
-        errorMessage: errData.message || `Request failed with status ${response.status}`,
+        errorMessage: errData.message || errData.error || `Evaluation request failed (HTTP ${response.status})`,
       };
       await chrome.storage.local.set({ evaluationState: errorState });
       return { success: false, error: errorState.errorMessage };
@@ -327,7 +360,7 @@ async function handleEvaluation(payload: {
     const errState: StoredEvaluationState = {
       ...loadingState,
       status: 'error',
-      errorMessage: error.message || 'Network error connecting to JDMatcher Backend',
+      errorMessage: `Could not connect to backend server (${baseUrl}). Please ensure backend is running. (${error.message})`,
     };
     await chrome.storage.local.set({ evaluationState: errState });
     return { success: false, error: errState.errorMessage };

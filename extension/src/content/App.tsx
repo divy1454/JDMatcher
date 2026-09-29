@@ -29,6 +29,19 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const [jdText, setJdText] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Reactive Validation & Toast States (No alert popups)
+  const [candidateError, setCandidateError] = useState<string>('');
+  const [jdTextError, setJdTextError] = useState<string>('');
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'info' | 'error' | 'success' } | null>(null);
+
+  const showToast = (text: string, type: 'info' | 'error' | 'success' = 'info', duration = 3500) => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage((cur) => (cur?.text === text ? null : cur));
+    }, duration);
+  };
+
   // Evaluation & Storage State
   const [evalState, setEvalState] = useState<StoredEvaluationState>({ status: 'idle' });
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string>('');
@@ -392,7 +405,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       }
     } catch (_e3) {}
 
-    alert('Clipboard is empty or does not contain text. Copy a JD first!');
+    // Fallback: Notify user with smooth inline toast instead of alert popup
+    showToast('Clipboard is empty or contains no readable text. Copy a JD first!', 'error');
   };
 
   // Clear text
@@ -402,16 +416,28 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   // Hand Evaluation to Background Service Worker
   const handleEvaluate = async () => {
+    let hasValidationError = false;
     if (!selectedCandidateId) {
-      alert('Please select a bench candidate.');
-      return;
+      setCandidateError('Please select a candidate from your bench.');
+      hasValidationError = true;
+    } else {
+      setCandidateError('');
     }
+
     if (!jdText || jdText.trim().length < 20) {
-      alert('Job Description text must be at least 20 characters.');
+      setJdTextError('Job Description must be at least 20 characters.');
+      hasValidationError = true;
+    } else {
+      setJdTextError('');
+    }
+
+    if (hasValidationError) {
+      showToast('Please fix the highlighted fields to evaluate.', 'error');
       return;
     }
 
     setSaveSuccessMsg('');
+    setSaveErrorMsg('');
     setEvalState({ status: 'loading' });
 
     const firstLine = jdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 80);
@@ -434,7 +460,6 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
     try {
       const response = await new Promise<any>((resolve) => {
-        let resolved = false;
         try {
           chrome.runtime.sendMessage(
             {
@@ -447,7 +472,6 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
               },
             },
             (res) => {
-              resolved = true;
               if (chrome.runtime.lastError) {
                 resolve({ success: false, error: chrome.runtime.lastError.message });
               } else {
@@ -455,13 +479,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
               }
             }
           );
-          setTimeout(() => {
-            if (!resolved) {
-              resolve(null);
-            }
-          }, 3500);
-        } catch (_e: any) {
-          resolve(null);
+        } catch (msgErr: any) {
+          resolve({ success: false, error: msgErr.message });
         }
       });
 
@@ -492,73 +511,9 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
         return;
       }
 
-      // Direct fallback fetch from content script if background script did not respond
-      const baseUrl = await getApiUrl();
-      let deviceData = await chrome.storage.local.get(['deviceId']);
-      let deviceId = deviceData.deviceId;
-      if (!deviceId) {
-        deviceId = await generateHardwareFingerprint();
-        await chrome.storage.local.set({ deviceId });
-      }
-
-      const res = await fetch(`${baseUrl}/analyze/eval`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'x-device-id': deviceId,
-        },
-        body: JSON.stringify({
-          candidateId: selectedCandidateId,
-          jdText,
-          jobTitle: derivedJobTitle,
-          jobUrl: window.location.href,
-        }),
-      });
-
-      if (res.status === 402) {
-        const errJson = await res.json().catch(() => ({}));
-        setEvalState({
-          status: 'locked_402',
-          errorMessage: errJson.message || 'Usage Limit Reached. Please Contact Admin.',
-        });
-        return;
-      }
-
-      if (res.status === 403) {
-        const errJson = await res.json().catch(() => ({}));
-        setEvalState({
-          status: 'locked_device',
-          errorMessage: errJson.message || 'Recruiter seat locked to another machine.',
-        });
-        return;
-      }
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        setEvalState({
-          status: 'error',
-          errorMessage: errJson.message || `Request failed (${res.status})`,
-        });
-        return;
-      }
-
-      const result = await res.json();
       setEvalState({
-        status: 'success',
-        result,
-        jobTitle: derivedJobTitle,
-      });
-      chrome.storage.local.set({
-        evaluationState: {
-          status: 'success',
-          result,
-          selectedCandidateId,
-          scrapedJdText: jdText,
-          jobTitle: derivedJobTitle,
-          jobUrl: window.location.href,
-          timestamp: Date.now(),
-        },
+        status: 'error',
+        errorMessage: 'AI evaluation failed. Please verify that the backend server is running and Gemini 3.5 Flash-Lite is accessible.',
       });
     } catch (err: any) {
       console.error('Failed to trigger evaluation:', err);
@@ -576,8 +531,26 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     setIsSaving(true);
 
     try {
-      const firstLine = jdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 80);
-      const titleToSave = evalResult.jobTitle || evalState.jobTitle || (firstLine.length > 5 ? firstLine : 'Software Opportunity');
+      let titleToSave = evalResult.jobTitle || evalState.jobTitle;
+      if (!titleToSave || titleToSave === 'Opportunity' || titleToSave === 'Software Opportunity' || titleToSave === 'Job Application') {
+        const titleMatch = jdText.match(/(?:job\s*title|role|position)\s*[:\-–]?\s*([^\n\r,\.]{3,50})/i);
+        if (titleMatch && titleMatch[1]) {
+          titleToSave = titleMatch[1].trim();
+        } else {
+          const firstLine = jdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 80);
+          titleToSave = firstLine.length > 5 ? firstLine : (selectedCandidate ? `${selectedCandidate.primaryTitle} Opportunity` : 'Software Opportunity');
+        }
+      }
+
+      let companyToSave = evalResult.companyName || evalState.companyOrClient;
+      if (!companyToSave || companyToSave === 'Confidential / Client' || companyToSave === 'Client') {
+        const compMatch = jdText.match(/(?:company|client|employer|organization|at|with)\s*[:\-–]?\s*([A-Z][A-Za-z0-9&.\s]{2,35})/);
+        if (compMatch && compMatch[1]) {
+          companyToSave = compMatch[1].trim();
+        } else {
+          companyToSave = 'Confidential / Client';
+        }
+      }
 
       let currentTabUrl = window.location.href;
       try {
@@ -594,6 +567,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             payload: {
               candidateId: selectedCandidateId,
               jobTitle: titleToSave,
+              companyOrClient: companyToSave,
               jobUrl: currentTabUrl,
               rawJdText: jdText,
               verdict: evalResult.verdict,
@@ -621,9 +595,11 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       setJdText('');
 
       setSaveSuccessMsg('Saved to Matched JDs & Cleared!');
+      setSaveErrorMsg('');
       setTimeout(() => setSaveSuccessMsg(''), 4000);
     } catch (err: any) {
-      alert('Failed to save: ' + err.message);
+      setSaveErrorMsg(err.message || 'Failed to save matched JD');
+      showToast('Failed to save: ' + (err.message || 'Unknown error'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -725,6 +701,15 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   return (
     <div ref={containerRef} className="jdm-popup-window">
+      {/* Non-intrusive Toast Notifications */}
+      {toastMessage && (
+        <div className="jdm-toast-container">
+          <div className={`jdm-toast jdm-toast-${toastMessage.type}`}>
+            <span>{toastMessage.text}</span>
+          </div>
+        </div>
+      )}
+
       {/* 1. Top Dark Section (Header, Active Candidate, Quota Bar) */}
       <div className="jdm-top-dark-section">
         {/* Header Bar */}
@@ -736,7 +721,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 <span className="jdm-app-name">JD Matcher</span>
                 <span className="jdm-pro-badge">PRO</span>
               </div>
-              <div className="jdm-subtext">Bench Sales AI • Gemini 3.8 Flash</div>
+              <div className="jdm-subtext">Bench Sales AI • Gemini 3.5 Flash-Lite</div>
             </div>
           </div>
 
@@ -874,11 +859,15 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                   </div>
                 </div>
               ) : (
-                /* Enhanced Custom Dropdown Trigger & Popover */
-                <div className="jdm-dropdown-container" ref={dropdownRef}>
+                <>
+                  {/* Enhanced Custom Dropdown Trigger & Popover */}
+                  <div className="jdm-dropdown-container" ref={dropdownRef}>
                   <div
-                    className={`jdm-candidate-card ${isDropdownOpen ? 'is-open' : ''}`}
-                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    className={`jdm-candidate-card ${isDropdownOpen ? 'is-open' : ''} ${candidateError ? 'jdm-card-error' : ''}`}
+                    onClick={() => {
+                      setIsDropdownOpen(!isDropdownOpen);
+                      if (candidateError) setCandidateError('');
+                    }}
                     role="button"
                     tabIndex={0}
                     title="Click to switch candidate profile"
@@ -962,6 +951,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setSelectedCandidateId(c.id);
+                                  setCandidateError('');
                                   setIsDropdownOpen(false);
                                   setCandidateSearchQuery('');
                                 }}
@@ -1006,6 +996,12 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                     </div>
                   )}
                 </div>
+                  {candidateError && (
+                    <div className="jdm-inline-validation-msg">
+                      ⚠️ {candidateError}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -1201,12 +1197,15 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 </div>
               </div>
 
-              <div className="jdm-textarea-wrap">
+              <div className={`jdm-textarea-wrap ${jdTextError ? 'jdm-wrap-error' : ''}`}>
                 <textarea
                   ref={textareaRef}
                   className="jdm-jd-textarea"
                   value={jdText}
-                  onChange={(e) => setJdText(e.target.value)}
+                  onChange={(e) => {
+                    setJdText(e.target.value);
+                    if (jdTextError) setJdTextError('');
+                  }}
                   placeholder="Paste Job Description here (responsibilities, required qualifications, client info)..."
                   rows={5}
                 />
@@ -1215,6 +1214,11 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                   <span className="jdm-char-count">{jdText.length.toLocaleString()} characters</span>
                 </div>
               </div>
+              {jdTextError && (
+                <div className="jdm-inline-validation-msg">
+                  ⚠️ {jdTextError}
+                </div>
+              )}
             </div>
 
             {/* Evaluate CTA Button */}
@@ -1224,8 +1228,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
               disabled={
                 evalState.status === 'loading' ||
                 evalState.status === 'locked_402' ||
-                candidates.length === 0 ||
-                !selectedCandidateId
+                candidates.length === 0
               }
               title={
                 candidates.length === 0
@@ -1283,6 +1286,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             )}
 
             {saveSuccessMsg && <div className="jdm-success-alert">✓ {saveSuccessMsg}</div>}
+            {saveErrorMsg && <div className="jdm-error-alert">⚠️ {saveErrorMsg}</div>}
 
             {/* 3. Dynamic Live Results Card (1:1 Exact Blueprint to Image 1 / D:\JD Matcher) */}
             {evalState.status === 'success' && evalResult && (
