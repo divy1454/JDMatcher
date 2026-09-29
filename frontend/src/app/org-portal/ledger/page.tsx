@@ -210,7 +210,7 @@ export default function AgencyBillingLedgerPage() {
       <div className="flex items-center gap-3 rounded-2xl border border-violet-500/20 bg-violet-950/20 p-4 text-xs text-violet-300">
         <ShieldCheck className="h-5 w-5 shrink-0 text-violet-400" />
         <span>
-          <strong>Token Billing Policy:</strong> Invoices are generated strictly on Gemini 3.5 Flash-Lite LLM token consumption. Monthly invoices become downloadable as soon as issued by the Super Admin. Each invoice contains official business details and an instant, auto-filled UPI QR code.
+          <strong>Token Billing Policy:</strong> Invoices are generated strictly on Enterprise AI token consumption. Monthly invoices become downloadable as soon as issued by the Super Admin. Each invoice contains official business details and an instant, auto-filled UPI QR code.
         </span>
       </div>
 

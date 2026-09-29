@@ -28,11 +28,11 @@ services:
       - key: CORS_ORIGINS
         sync: false
       - key: SUPER_ADMIN_EMAIL
-        value: admin@jdmatcher.internal
+        value: Divy9954@gmail.com
       - key: SUPER_ADMIN_PASSWORD
         sync: false
       - key: SUPER_ADMIN_NAME
-        value: Platform Super Admin
+        value: Divy Patel
 
   # Service 2: Next.js Frontend Dashboard
   - type: web

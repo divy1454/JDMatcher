@@ -75,7 +75,7 @@ export default function OrgEvaluationSettingsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Evaluation Prompt Settings</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Tailor the Gemini 3.8 Flash evaluation instructions to align with your agency's client contracts and placement standards.
+            Tailor the AI evaluation instructions to align with your agency's client contracts and placement standards.
           </p>
         </div>
 

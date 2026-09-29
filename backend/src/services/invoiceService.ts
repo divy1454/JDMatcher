@@ -318,7 +318,7 @@ export class InvoiceService {
       {
         id: 'li-input-tokens',
         category: 'Input Tokens',
-        description: 'Gemini 3.5 Flash-Lite Input Tokens (Prompt & Context Processing)',
+        description: 'Enterprise AI Input Tokens (Prompt & Context Processing)',
         quantity: inputTokens,
         unit: 'tokens',
         unitPriceUsd: Number((inputRatePerM / 1_000_000).toFixed(8)),
@@ -327,7 +327,7 @@ export class InvoiceService {
       {
         id: 'li-output-tokens',
         category: 'Output Tokens',
-        description: 'Gemini 3.5 Flash-Lite Output Tokens (Evaluation Reasoning & Match Scoring)',
+        description: 'Enterprise AI Output Tokens (Evaluation Reasoning & Match Scoring)',
         quantity: outputTokens,
         unit: 'tokens',
         unitPriceUsd: Number((outputRatePerM / 1_000_000).toFixed(8)),

@@ -40,7 +40,7 @@ export class GeminiService {
   private static getClient(): GoogleGenAI {
     const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
     if (!apiKey) {
-      throw new Error('Gemini API key is not configured. Please set GEMINI_API_KEY in the server environment.');
+      throw new Error('AI API key is not configured. Please set the AI key in the server environment.');
     }
     if (!this.aiClient) {
       this.aiClient = new GoogleGenAI({ apiKey });
@@ -102,12 +102,12 @@ You MUST respond strictly with valid, unescaped JSON matching this schema exactl
       rawText = response.text || '';
       usageMetadata = response.usageMetadata;
     } catch (err: any) {
-      console.error(`[GeminiService] gemini-3.5-flash-lite evaluation error:`, err);
-      throw new Error(`AI_EVALUATION_FAILED: ${err.message || 'Gemini 3.5 Flash-Lite service call failed'}`);
+      console.error(`[GeminiService] AI evaluation error:`, err);
+      throw new Error(`AI_EVALUATION_FAILED: ${err.message || 'AI service call failed'}`);
     }
 
     if (!rawText.trim()) {
-      throw new Error('AI_EVALUATION_FAILED: Empty response received from Gemini 3.5 Flash-Lite.');
+      throw new Error('AI_EVALUATION_FAILED: Empty response received from AI engine.');
     }
 
     const latencyMs = Date.now() - startTime;
@@ -154,7 +154,7 @@ You MUST respond strictly with valid, unescaped JSON matching this schema exactl
       return this.parseMarkdownEvaluation(rawText, prompt);
     } catch (mdErr: any) {
       console.error('[GeminiService] Failed to parse evaluation output:', mdErr, rawText);
-      throw new Error(`AI_PARSING_FAILED: Could not parse evaluation from Gemini 3.5 Flash-Lite. Raw output: ${rawText.slice(0, 200)}...`);
+      throw new Error(`AI_PARSING_FAILED: Could not parse evaluation from AI engine.`);
     }
   }
 

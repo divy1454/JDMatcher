@@ -558,7 +558,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
       setEvalState({
         status: 'error',
-        errorMessage: 'AI evaluation failed. Please verify that the backend server is running and Gemini 3.5 Flash-Lite is accessible.',
+        errorMessage: 'AI evaluation failed. Please verify that the backend server is running and AI service is accessible.',
       });
     } catch (err: any) {
       console.error('Failed to trigger evaluation:', err);
@@ -763,7 +763,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 <span className="jdm-app-name">JD Matcher</span>
                 <span className="jdm-pro-badge">PRO</span>
               </div>
-              <div className="jdm-subtext">Bench Sales AI • Gemini 3.5 Flash-Lite</div>
+              <div className="jdm-subtext">Bench Sales AI • Enterprise Match Engine</div>
             </div>
           </div>
 
@@ -1303,7 +1303,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                   <div className="jdm-progress-title-wrap">
                     <span className="jdm-spinner" style={{ width: '13px', height: '13px' }} />
                     <span className="jdm-progress-title">Evaluating Candidate Against JD</span>
-                    <span className="jdm-progress-model-badge">gemini-3.5-flash-lite</span>
+                    <span className="jdm-progress-model-badge">Enterprise Neural Engine</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className="jdm-progress-timer">{evalElapsedSeconds.toFixed(1)}s</span>

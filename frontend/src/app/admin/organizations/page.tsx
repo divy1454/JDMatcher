@@ -442,7 +442,7 @@ export default function OrganizationsPage() {
                   </div>
                 </div>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  Markup factor applied to raw Gemini API costs. e.g. 4.0x multiplier means a $0.005 LLM call bills the agency $0.020.
+                  Markup factor applied to raw AI provider API costs. e.g. 4.0x multiplier means a $0.005 AI call bills the agency $0.020.
                 </p>
               </div>
 

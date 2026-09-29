@@ -76,7 +76,7 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         request.log.error(aiErr, 'AI Evaluation failed');
         return reply.status(502).send({
           error: 'AI_EVALUATION_FAILED',
-          message: aiErr.message || 'Gemini 3.5 Flash-Lite evaluation failed. Please check AI key or service availability.',
+          message: aiErr.message || 'AI evaluation failed. Please check AI key or service availability.',
         });
       }
 

@@ -22,19 +22,25 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
       const stats = await BillingService.getTelemetryStats(timeframe);
 
-      // Server health and table row counts
-      const countsQuery = await db.select({
-        orgCount: sql<number>`(SELECT count(*) FROM organizations)`,
-        userCount: sql<number>`(SELECT count(*) FROM users)`,
-        ledgerCount: sql<number>`(SELECT count(*) FROM token_consumption_ledger)`,
-        matchedJdCount: sql<number>`(SELECT count(*) FROM matched_jds)`,
-      }).from(organizations).limit(1);
+      // Server health and table row counts (robust when tables are empty)
+      const countsResult = await db.execute<{
+        orgCount: string;
+        userCount: string;
+        ledgerCount: string;
+        matchedJdCount: string;
+      }>(sql`
+        SELECT
+          (SELECT count(*) FROM organizations) as "orgCount",
+          (SELECT count(*) FROM users) as "userCount",
+          (SELECT count(*) FROM token_consumption_ledger) as "ledgerCount",
+          (SELECT count(*) FROM matched_jds) as "matchedJdCount"
+      `);
 
-      const counts = countsQuery[0] || {
-        orgCount: 0,
-        userCount: 0,
-        ledgerCount: 0,
-        matchedJdCount: 0,
+      const counts = countsResult.rows[0] || {
+        orgCount: '0',
+        userCount: '0',
+        ledgerCount: '0',
+        matchedJdCount: '0',
       };
 
       return reply.send({

@@ -188,7 +188,7 @@ export default function TelemetryPage() {
             </span>
           </div>
           <p className="mt-1 text-[11px] text-slate-500">
-            Billed: {formatCurrency(data?.totalBilledCostUsd || 0)} | Gemini Cost: {formatCurrency(data?.totalRawCostUsd || 0)}
+            Billed: {formatCurrency(data?.totalBilledCostUsd || 0)} | Provider Cost: {formatCurrency(data?.totalRawCostUsd || 0)}
           </p>
         </div>
 
@@ -205,7 +205,7 @@ export default function TelemetryPage() {
             <span className="text-xs font-medium text-slate-400">P50 / P95</span>
           </div>
           <p className="mt-1 text-[11px] text-indigo-400">
-            Target &lt; 800ms • Gemini 3.8 Flash
+            Target &lt; 800ms • High-Speed Inference Engine
           </p>
         </div>
 
@@ -254,7 +254,7 @@ export default function TelemetryPage() {
             <div>
               <h2 className="text-base font-bold text-white">Profit Margin & Cost Trajectory</h2>
               <p className="text-xs text-slate-400">
-                Visualizing agency billed revenue against Gemini 3.8 Flash API consumption
+                Visualizing agency billed revenue against AI Provider API consumption
               </p>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium">
@@ -264,7 +264,7 @@ export default function TelemetryPage() {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
-                <span className="text-slate-300">Raw Gemini Cost ($)</span>
+                <span className="text-slate-300">Raw Provider Cost ($)</span>
               </div>
             </div>
           </div>

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/authContext';
 import { LoginBrandLogo } from '@/components/brand';
-import { ShieldCheck, Lock, Mail, ArrowRight, Sparkles, Building2, UserCheck } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -30,13 +30,6 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // One-click quick login for testing seeded accounts
-  const quickFill = (userEmail: string, userPass: string) => {
-    setEmail(userEmail);
-    setPassword(userPass);
-    setErrorMessage('');
   };
 
   return (
@@ -119,50 +112,6 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-
-        {/* Quick Demo Credentials Switcher */}
-        <div className="mt-8 border-t border-slate-800/80 pt-6">
-          <div className="mb-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Quick Fill Demo Accounts
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => quickFill('admin@jdmatcher.internal', 'ChangeMeInProd123!')}
-              className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2 text-left text-slate-300 transition hover:border-indigo-500/50 hover:bg-indigo-950/20"
-            >
-              <ShieldCheck className="h-4 w-4 text-indigo-400 shrink-0" />
-              <div className="truncate">
-                <p className="font-semibold text-white">Super Admin</p>
-                <p className="text-[10px] text-slate-500 truncate">Platform Telemetry</p>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => quickFill('admin@apexit.com', 'ApexAdmin2026!')}
-              className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2 text-left text-slate-300 transition hover:border-violet-500/50 hover:bg-violet-950/20"
-            >
-              <Building2 className="h-4 w-4 text-violet-400 shrink-0" />
-              <div className="truncate">
-                <p className="font-semibold text-white">Org Admin</p>
-                <p className="text-[10px] text-slate-500 truncate">Billing & Candidates</p>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => quickFill('recruiter@apexit.com', 'Recruiter2026!')}
-              className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2 text-left text-slate-300 transition hover:border-emerald-500/50 hover:bg-emerald-950/20"
-            >
-              <UserCheck className="h-4 w-4 text-emerald-400 shrink-0" />
-              <div className="truncate">
-                <p className="font-semibold text-white">Recruiter</p>
-                <p className="text-[10px] text-slate-500 truncate">Candidates & Matches</p>
-              </div>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );

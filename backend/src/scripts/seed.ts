@@ -34,30 +34,48 @@ export async function seed() {
     .where(eq(users.email, env.SUPER_ADMIN_EMAIL.toLowerCase()))
     .limit(1);
 
-  if (!existingSuperAdmin) {
     const passwordHash = await bcrypt.hash(env.SUPER_ADMIN_PASSWORD, 10);
-    const [superAdmin] = await db
-      .insert(users)
-      .values({
-        organizationId: null, // Super Admin is not tied to any tenant
-        role: 'super_admin',
-        email: env.SUPER_ADMIN_EMAIL.toLowerCase(),
-        passwordHash,
-        fullName: env.SUPER_ADMIN_NAME,
-      })
-      .returning();
-    console.log(`Super Admin provisioned successfully: ${superAdmin.email}`);
-  } else {
-    console.log(`Super Admin account already exists: ${existingSuperAdmin.email}`);
-  }
+    if (!existingSuperAdmin) {
+      const [superAdmin] = await db
+        .insert(users)
+        .values({
+          organizationId: null, // Super Admin is not tied to any tenant
+          role: 'super_admin',
+          email: env.SUPER_ADMIN_EMAIL.toLowerCase(),
+          passwordHash,
+          fullName: env.SUPER_ADMIN_NAME,
+        })
+        .returning();
+      console.log(`Super Admin provisioned successfully: ${superAdmin.email}`);
+    } else {
+      await db
+        .update(users)
+        .set({
+          passwordHash,
+          fullName: env.SUPER_ADMIN_NAME,
+          role: 'super_admin',
+          organizationId: null,
+          isActive: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, existingSuperAdmin.id));
+      console.log(`Super Admin account refreshed with current env credentials: ${existingSuperAdmin.email}`);
+    }
 
-  // 3. Seed Demo Agency: Apex IT Staffing
-  console.log('Checking demo agency: Apex IT Staffing...');
-  let [demoOrg] = await db
-    .select()
-    .from(organizations)
-    .where(eq(organizations.slug, 'apex-it-staffing'))
-    .limit(1);
+    const shouldSeedDemo = process.argv.includes('--demo');
+    if (!shouldSeedDemo) {
+      console.log('\n--- Fresh Workflow Mode: Demo agency seeding skipped (use --demo to seed Apex IT demo) ---');
+      console.log('--- Database Seeding Completed Successfully ---');
+      return;
+    }
+
+    // 3. Seed Demo Agency: Apex IT Staffing (Only when --demo flag is provided)
+    console.log('Checking demo agency: Apex IT Staffing...');
+    let [demoOrg] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.slug, 'apex-it-staffing'))
+      .limit(1);
 
   if (!demoOrg) {
     [demoOrg] = await db

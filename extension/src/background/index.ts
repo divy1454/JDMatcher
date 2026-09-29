@@ -351,7 +351,7 @@ async function handleEvaluation(payload: {
       const errorState: StoredEvaluationState = {
         ...loadingState,
         status: 'error',
-        errorMessage: errData.message || 'Gemini 3.5 Flash-Lite evaluation failed. Please verify API key and service availability.',
+        errorMessage: errData.message || 'AI evaluation failed. Please verify API key and service availability.',
       };
       await chrome.storage.local.set({ evaluationState: errorState });
       return { success: false, error: errorState.errorMessage };
