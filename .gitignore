@@ -17,6 +17,7 @@ extension/dist/
 .idea/
 *.swp
 *.swo
+.agents/
 
 # OS files
 .DS_Store
