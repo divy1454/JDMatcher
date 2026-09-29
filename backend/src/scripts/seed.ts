@@ -183,15 +183,11 @@ EXPERIENCE:
   }
 
   // 7. Seed Monthly Expense Tracking & Real-Life Invoices for Demo Agency (Apex IT Staffing)
-  console.log('Checking monthly dummy invoices for Apex IT Staffing...');
-  const [existingInv] = await db
-    .select()
-    .from(invoices)
-    .where(eq(invoices.organizationId, demoOrg.id))
-    .limit(1);
+  console.log('Refreshing monthly token-only invoices for Apex IT Staffing...');
+  await db.delete(invoices).where(eq(invoices.organizationId, demoOrg.id));
 
-  if (!existingInv) {
-    console.log('Seeding rich monthly business-level invoices with UPI details...');
+  if (true) {
+    console.log('Seeding rich monthly business-level invoices with UPI details (Pure Token Pricing)...');
     
     // Seed sample ledger entries across months if empty
     const [existingLedger] = await db
@@ -274,7 +270,7 @@ EXPERIENCE:
       status: 'paid',
       isGenerated: true,
       totalEvaluations: 980,
-      totalTokens: 1960000,
+      totalTokens: 7100000,
       rawCostUsd: '12.2500',
       subtotalUsd: '49.0000',
       taxUsd: '0.0000',
@@ -287,31 +283,22 @@ EXPERIENCE:
       ownerEmail: 'divy9954@gmail.com',
       lineItems: [
         {
-          id: 'li-1',
-          category: 'AI Inference',
-          description: 'Candidate Evaluation Operations (Waterfall Prompt Engine)',
-          quantity: 980,
-          unit: 'evals',
-          unitPriceUsd: 0.03,
-          totalUsd: 29.40,
-        },
-        {
-          id: 'li-2',
-          category: 'Token Ledger',
-          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption (1,960,000 tokens)',
-          quantity: 1960000,
+          id: 'li-in',
+          category: 'Input Tokens',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          quantity: 2500000,
           unit: 'tokens',
-          unitPriceUsd: 0.00000625,
-          totalUsd: 12.25,
+          unitPriceUsd: 0.0000012,
+          totalUsd: 3.00,
         },
         {
-          id: 'li-3',
-          category: 'Platform & Security',
-          description: 'Enterprise Tenant Security Deposit Ledger & Recruiter Anti-Sharing Lock',
-          quantity: 1,
-          unit: 'month',
-          unitPriceUsd: 7.35,
-          totalUsd: 7.35,
+          id: 'li-out',
+          category: 'Output Tokens',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          quantity: 4600000,
+          unit: 'tokens',
+          unitPriceUsd: 0.000010,
+          totalUsd: 46.00,
         },
       ],
       notes: 'Settled via UPI transaction ID: UPI/20260729/89999119992. Receipt generated.',
@@ -332,7 +319,7 @@ EXPERIENCE:
       status: 'paid',
       isGenerated: true,
       totalEvaluations: 2150,
-      totalTokens: 4300000,
+      totalTokens: 16250000,
       rawCostUsd: '26.8750',
       subtotalUsd: '107.5000',
       taxUsd: '0.0000',
@@ -345,31 +332,22 @@ EXPERIENCE:
       ownerEmail: 'divy9954@gmail.com',
       lineItems: [
         {
-          id: 'li-1',
-          category: 'AI Inference',
-          description: 'Candidate Evaluation Operations (2,150 matches evaluated)',
-          quantity: 2150,
-          unit: 'evals',
-          unitPriceUsd: 0.03,
-          totalUsd: 64.50,
-        },
-        {
-          id: 'li-2',
-          category: 'Token Ledger',
-          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption (4,300,000 tokens)',
-          quantity: 4300000,
+          id: 'li-in',
+          category: 'Input Tokens',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          quantity: 6250000,
           unit: 'tokens',
-          unitPriceUsd: 0.00000625,
-          totalUsd: 26.88,
+          unitPriceUsd: 0.0000012,
+          totalUsd: 7.50,
         },
         {
-          id: 'li-3',
-          category: 'Platform & Security',
-          description: 'Enterprise Tenant Security Deposit Ledger & Recruiter Anti-Sharing Lock',
-          quantity: 1,
-          unit: 'month',
-          unitPriceUsd: 16.12,
-          totalUsd: 16.12,
+          id: 'li-out',
+          category: 'Output Tokens',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          quantity: 10000000,
+          unit: 'tokens',
+          unitPriceUsd: 0.000010,
+          totalUsd: 100.00,
         },
       ],
       notes: 'Settled via UPI transaction ID: UPI/20260828/89999119992. Receipt generated.',
@@ -390,7 +368,7 @@ EXPERIENCE:
       status: 'generated',
       isGenerated: true, // Super admin chose to generate bill! Agency gets Download Invoice button!
       totalEvaluations: 1420,
-      totalTokens: 2840000,
+      totalTokens: 10200000,
       rawCostUsd: '17.8000',
       subtotalUsd: '71.2000',
       taxUsd: '0.0000',
@@ -403,31 +381,22 @@ EXPERIENCE:
       ownerEmail: 'divy9954@gmail.com',
       lineItems: [
         {
-          id: 'li-1',
-          category: 'AI Inference',
-          description: 'Candidate Evaluation Operations (1,420 evaluations)',
-          quantity: 1420,
-          unit: 'evals',
-          unitPriceUsd: 0.03,
-          totalUsd: 42.60,
-        },
-        {
-          id: 'li-2',
-          category: 'Token Ledger',
-          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption (2,840,000 tokens)',
-          quantity: 2840000,
+          id: 'li-in',
+          category: 'Input Tokens',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          quantity: 3500000,
           unit: 'tokens',
-          unitPriceUsd: 0.00000625,
-          totalUsd: 17.80,
+          unitPriceUsd: 0.0000012,
+          totalUsd: 4.20,
         },
         {
-          id: 'li-3',
-          category: 'Platform & Security',
-          description: 'Enterprise Dedicated Hardware Device Guard & Anti-Sharing Security',
-          quantity: 1,
-          unit: 'month',
-          unitPriceUsd: 10.80,
-          totalUsd: 10.80,
+          id: 'li-out',
+          category: 'Output Tokens',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          quantity: 6700000,
+          unit: 'tokens',
+          unitPriceUsd: 0.000010,
+          totalUsd: 67.00,
         },
       ],
       notes: 'Scan the UPI QR code using Google Pay, PhonePe, or Paytm to pay ₹6,158.80 instantly.',
@@ -436,7 +405,6 @@ EXPERIENCE:
     });
 
     // Seed October 2026 (Unbilled / Ongoing Month with isGenerated = false)
-    // Demonstrates: Agency sees expense tracking, but NO download button because Super Admin has not generated bill yet!
     await db.insert(invoices).values({
       organizationId: demoOrg.id,
       invoiceNumber: 'JDM-202610-APEX01',
@@ -448,7 +416,7 @@ EXPERIENCE:
       status: 'draft',
       isGenerated: false, // Super admin has NOT generated bill yet! Download button hidden from Agency!
       totalEvaluations: 340,
-      totalTokens: 680000,
+      totalTokens: 2580000,
       rawCostUsd: '4.2500',
       subtotalUsd: '17.0000',
       taxUsd: '0.0000',
@@ -461,31 +429,22 @@ EXPERIENCE:
       ownerEmail: 'divy9954@gmail.com',
       lineItems: [
         {
-          id: 'li-1',
-          category: 'AI Inference',
-          description: 'Candidate Evaluation Operations (Current month draft)',
-          quantity: 340,
-          unit: 'evals',
-          unitPriceUsd: 0.03,
-          totalUsd: 10.20,
-        },
-        {
-          id: 'li-2',
-          category: 'Token Ledger',
-          description: 'Gemini 3.5 Flash-Lite LLM Token Consumption',
-          quantity: 680000,
+          id: 'li-in',
+          category: 'Input Tokens',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          quantity: 1000000,
           unit: 'tokens',
-          unitPriceUsd: 0.00000625,
-          totalUsd: 4.25,
+          unitPriceUsd: 0.0000012,
+          totalUsd: 1.20,
         },
         {
-          id: 'li-3',
-          category: 'Platform & Security',
-          description: 'Enterprise Dedicated Hardware Device Guard',
-          quantity: 1,
-          unit: 'month',
-          unitPriceUsd: 2.55,
-          totalUsd: 2.55,
+          id: 'li-out',
+          category: 'Output Tokens',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          quantity: 1580000,
+          unit: 'tokens',
+          unitPriceUsd: 0.000010,
+          totalUsd: 15.80,
         },
       ],
       notes: 'Pending Super Admin monthly billing generation.',

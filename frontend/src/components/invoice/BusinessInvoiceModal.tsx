@@ -144,11 +144,13 @@ export function BusinessInvoiceModal({ isOpen, onClose, invoice }: BusinessInvoi
               <span>Print / Save as PDF</span>
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-700 bg-slate-800/80 p-2 text-slate-400 hover:bg-slate-700 hover:text-white transition"
-              title="Close"
+              className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white transition active:scale-95 shadow-sm"
+              title="Close Invoice"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
+              <span>Close Invoice</span>
             </button>
           </div>
         </div>
@@ -305,7 +307,9 @@ export function BusinessInvoiceModal({ isOpen, onClose, invoice }: BusinessInvoi
                         {item.quantity.toLocaleString()} {item.unit}
                       </td>
                       <td className="py-3 text-right font-mono text-slate-600">
-                        ${item.unitPriceUsd < 0.001 ? item.unitPriceUsd.toFixed(6) : item.unitPriceUsd.toFixed(4)}
+                        {item.unit === 'tokens'
+                          ? `$${(item.unitPriceUsd * 1_000_000).toFixed(2)} / 1M`
+                          : `$${item.unitPriceUsd < 0.001 ? item.unitPriceUsd.toFixed(6) : item.unitPriceUsd.toFixed(4)}`}
                       </td>
                       <td className="py-3 text-right font-bold text-slate-900 font-mono">
                         ${item.totalUsd.toFixed(2)}
@@ -472,6 +476,35 @@ export function BusinessInvoiceModal({ isOpen, onClose, invoice }: BusinessInvoi
             <p className="font-semibold text-slate-700 text-center sm:text-right">
               Questions? Reach out to {invoice.ownerEmail} or {invoice.ownerPhone}
             </p>
+          </div>
+
+          {/* Bottom Action Bar (Close Invoice & Print PDF) */}
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-between border-t border-slate-200 pt-6 gap-4 print:hidden">
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="font-semibold text-slate-400">Invoice:</span>
+              <span className="font-mono font-bold text-slate-800">{invoice.invoiceNumber}</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-500">Pure Token Billing</span>
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex flex-1 sm:flex-initial items-center justify-center gap-2 rounded-xl border border-slate-300 bg-slate-100 px-5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-200 transition active:scale-95 shadow-sm"
+              >
+                <X className="h-4 w-4 text-slate-500" />
+                <span>Close Invoice</span>
+              </button>
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="flex flex-1 sm:flex-initial items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-violet-600/30 hover:bg-violet-500 transition active:scale-95"
+              >
+                <Printer className="h-4 w-4" />
+                <span>Print / Save as PDF</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

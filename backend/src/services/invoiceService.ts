@@ -261,11 +261,17 @@ export class InvoiceService {
     const periodEnd = new Date(Date.UTC(year, m, 0, 23, 59, 59, 999));
     const dueDate = new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000);
 
+    const multiplier = parseFloat(org.profitMultiplier) || 4.0;
+    const inputRatePerM = Number((0.30 * multiplier).toFixed(2));
+    const outputRatePerM = Number((2.50 * multiplier).toFixed(2));
+
     // Fetch actual telemetry from token ledger for that month
     const [ledgerStats] = await db
       .select({
         evaluations: sql<number>`count(${tokenConsumptionLedger.id})::int`,
-        tokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.totalTokens}), 0)::int`,
+        inputTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.inputTokens}), 0)::int`,
+        outputTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.outputTokens}), 0)::int`,
+        totalTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.totalTokens}), 0)::int`,
         cost: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
       })
       .from(tokenConsumptionLedger)
@@ -278,41 +284,54 @@ export class InvoiceService {
       );
 
     const evaluations = ledgerStats?.evaluations || 0;
-    const tokens = ledgerStats?.tokens || 0;
-    const calculatedCost = ledgerStats ? Number(ledgerStats.cost.toFixed(4)) : 0;
+    let inputTokens = ledgerStats?.inputTokens || 0;
+    let outputTokens = ledgerStats?.outputTokens || 0;
 
-    const subtotalUsd = params.customSubtotalUsd !== undefined ? params.customSubtotalUsd : (calculatedCost > 0 ? calculatedCost : 50.0);
+    let subtotalUsd: number;
+    let inputCostUsd: number;
+    let outputCostUsd: number;
+
+    if (params.customSubtotalUsd !== undefined && params.customSubtotalUsd > 0) {
+      subtotalUsd = params.customSubtotalUsd;
+      // Proportional token cost derivation based on 1.20 vs 10.00 pricing ratio
+      inputCostUsd = Number((subtotalUsd * 0.058988).toFixed(4));
+      outputCostUsd = Number((subtotalUsd - inputCostUsd).toFixed(4));
+      if (inputTokens === 0) {
+        inputTokens = Math.round((inputCostUsd / inputRatePerM) * 1_000_000);
+      }
+      if (outputTokens === 0) {
+        outputTokens = Math.round((outputCostUsd / outputRatePerM) * 1_000_000);
+      }
+    } else {
+      inputCostUsd = Number(((inputTokens / 1_000_000) * inputRatePerM).toFixed(4));
+      outputCostUsd = Number(((outputTokens / 1_000_000) * outputRatePerM).toFixed(4));
+      subtotalUsd = Number((inputCostUsd + outputCostUsd).toFixed(4));
+    }
+
+    const totalTokens = inputTokens + outputTokens;
     const taxUsd = 0; // Standard zero export tax
     const totalUsd = Number((subtotalUsd + taxUsd).toFixed(4));
     const totalInr = Number((totalUsd * rate).toFixed(2));
 
+    // Charged STRICTLY for tokens only (Gemini 3.5 Flash-Lite Developer API + agency multiplier)
     const lineItems: InvoiceLineItem[] = [
       {
-        id: 'li-1',
-        category: 'AI Inference',
-        description: `Candidate Evaluation Operations (Waterfall Prompt Engine)`,
-        quantity: evaluations > 0 ? evaluations : 1000,
-        unit: 'evals',
-        unitPriceUsd: evaluations > 0 ? Number((subtotalUsd * 0.6 / evaluations).toFixed(6)) : 0.03,
-        totalUsd: Number((subtotalUsd * 0.6).toFixed(4)),
-      },
-      {
-        id: 'li-2',
-        category: 'Token Ledger',
-        description: `Gemini 3.5 Flash-Lite LLM Token Consumption`,
-        quantity: tokens > 0 ? tokens : 2000000,
+        id: 'li-input-tokens',
+        category: 'Input Tokens',
+        description: `Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × ${multiplier.toFixed(1)}x multiplier = $${inputRatePerM.toFixed(2)}/1M)`,
+        quantity: inputTokens,
         unit: 'tokens',
-        unitPriceUsd: 0.00001,
-        totalUsd: Number((subtotalUsd * 0.25).toFixed(4)),
+        unitPriceUsd: Number((inputRatePerM / 1_000_000).toFixed(8)),
+        totalUsd: inputCostUsd,
       },
       {
-        id: 'li-3',
-        category: 'Platform & Security',
-        description: `Enterprise Tenant Anti-Sharing Lock & Live Telemetry`,
-        quantity: 1,
-        unit: 'month',
-        unitPriceUsd: Number((subtotalUsd * 0.15).toFixed(4)),
-        totalUsd: Number((subtotalUsd * 0.15).toFixed(4)),
+        id: 'li-output-tokens',
+        category: 'Output Tokens',
+        description: `Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × ${multiplier.toFixed(1)}x multiplier = $${outputRatePerM.toFixed(2)}/1M)`,
+        quantity: outputTokens,
+        unit: 'tokens',
+        unitPriceUsd: Number((outputRatePerM / 1_000_000).toFixed(8)),
+        totalUsd: outputCostUsd,
       },
     ];
 
