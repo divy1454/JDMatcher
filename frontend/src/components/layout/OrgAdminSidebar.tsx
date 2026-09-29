@@ -15,10 +15,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
+  Receipt,
 } from 'lucide-react';
 
 const orgNavItems = [
   { name: 'Billing HUD', href: '/org-portal/billing', icon: CreditCard },
+  { name: 'Billing Ledger', href: '/org-portal/ledger', icon: Receipt },
   { name: 'Candidates (Bench)', href: '/org-portal/candidates', icon: Users },
   { name: 'Agency Matched JDs', href: '/org-portal/matched-jds', icon: Briefcase },
   { name: 'Recruiter Team', href: '/org-portal/team', icon: UserCheck },
