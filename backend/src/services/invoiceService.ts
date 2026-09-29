@@ -313,12 +313,12 @@ export class InvoiceService {
     const totalUsd = Number((subtotalUsd + taxUsd).toFixed(4));
     const totalInr = Number((totalUsd * rate).toFixed(2));
 
-    // Charged STRICTLY for tokens only (Gemini 3.5 Flash-Lite Developer API + agency multiplier)
+    // Charged STRICTLY for tokens only (Clean client-facing description, no multiplier or base cost exposed)
     const lineItems: InvoiceLineItem[] = [
       {
         id: 'li-input-tokens',
         category: 'Input Tokens',
-        description: `Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × ${multiplier.toFixed(1)}x multiplier = $${inputRatePerM.toFixed(2)}/1M)`,
+        description: 'Gemini 3.5 Flash-Lite Input Tokens (Prompt & Context Processing)',
         quantity: inputTokens,
         unit: 'tokens',
         unitPriceUsd: Number((inputRatePerM / 1_000_000).toFixed(8)),
@@ -327,7 +327,7 @@ export class InvoiceService {
       {
         id: 'li-output-tokens',
         category: 'Output Tokens',
-        description: `Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × ${multiplier.toFixed(1)}x multiplier = $${outputRatePerM.toFixed(2)}/1M)`,
+        description: 'Gemini 3.5 Flash-Lite Output Tokens (Evaluation Reasoning & Match Scoring)',
         quantity: outputTokens,
         unit: 'tokens',
         unitPriceUsd: Number((outputRatePerM / 1_000_000).toFixed(8)),
@@ -351,7 +351,7 @@ export class InvoiceService {
           isGenerated: true,
           status: existing.status === 'paid' ? 'paid' : 'generated',
           totalEvaluations: evaluations,
-          totalTokens: tokens,
+          totalTokens,
           subtotalUsd: subtotalUsd.toFixed(4),
           totalAmountUsd: totalUsd.toFixed(4),
           exchangeRateInr: rate.toFixed(4),
@@ -379,7 +379,7 @@ export class InvoiceService {
         status: 'generated',
         isGenerated: true,
         totalEvaluations: evaluations,
-        totalTokens: tokens,
+        totalTokens,
         subtotalUsd: subtotalUsd.toFixed(4),
         taxUsd: '0.0000',
         totalAmountUsd: totalUsd.toFixed(4),

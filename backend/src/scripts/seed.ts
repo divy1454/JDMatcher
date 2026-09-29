@@ -285,7 +285,7 @@ EXPERIENCE:
         {
           id: 'li-in',
           category: 'Input Tokens',
-          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens (Prompt & Context Processing)',
           quantity: 2500000,
           unit: 'tokens',
           unitPriceUsd: 0.0000012,
@@ -294,7 +294,7 @@ EXPERIENCE:
         {
           id: 'li-out',
           category: 'Output Tokens',
-          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens (Evaluation Reasoning & Match Scoring)',
           quantity: 4600000,
           unit: 'tokens',
           unitPriceUsd: 0.000010,
@@ -334,7 +334,7 @@ EXPERIENCE:
         {
           id: 'li-in',
           category: 'Input Tokens',
-          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens (Prompt & Context Processing)',
           quantity: 6250000,
           unit: 'tokens',
           unitPriceUsd: 0.0000012,
@@ -343,7 +343,7 @@ EXPERIENCE:
         {
           id: 'li-out',
           category: 'Output Tokens',
-          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens (Evaluation Reasoning & Match Scoring)',
           quantity: 10000000,
           unit: 'tokens',
           unitPriceUsd: 0.000010,
@@ -383,7 +383,7 @@ EXPERIENCE:
         {
           id: 'li-in',
           category: 'Input Tokens',
-          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens (Prompt & Context Processing)',
           quantity: 3500000,
           unit: 'tokens',
           unitPriceUsd: 0.0000012,
@@ -392,7 +392,7 @@ EXPERIENCE:
         {
           id: 'li-out',
           category: 'Output Tokens',
-          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens (Evaluation Reasoning & Match Scoring)',
           quantity: 6700000,
           unit: 'tokens',
           unitPriceUsd: 0.000010,
@@ -431,7 +431,7 @@ EXPERIENCE:
         {
           id: 'li-in',
           category: 'Input Tokens',
-          description: 'Gemini 3.5 Flash-Lite Input Tokens ($0.30/1M base × 4.0x multiplier = $1.20/1M)',
+          description: 'Gemini 3.5 Flash-Lite Input Tokens (Prompt & Context Processing)',
           quantity: 1000000,
           unit: 'tokens',
           unitPriceUsd: 0.0000012,
@@ -440,7 +440,7 @@ EXPERIENCE:
         {
           id: 'li-out',
           category: 'Output Tokens',
-          description: 'Gemini 3.5 Flash-Lite Output Tokens ($2.50/1M base × 4.0x multiplier = $10.00/1M)',
+          description: 'Gemini 3.5 Flash-Lite Output Tokens (Evaluation Reasoning & Match Scoring)',
           quantity: 1580000,
           unit: 'tokens',
           unitPriceUsd: 0.000010,
