@@ -72,6 +72,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const [showServerConfig, setShowServerConfig] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const evalRequestIdRef = useRef<number>(0);
 
   const getApiUrl = async (): Promise<string> => {
     const data = await chrome.storage.local.get(['apiUrl', 'frontendUrl']);
@@ -427,9 +428,28 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     showToast('Clipboard is empty or contains no readable text. Copy a JD first!', 'error');
   };
 
-  // Clear text
-  const handleClear = () => {
+  // Clear text & immediately cancel/stop any running evaluation
+  const handleClear = async () => {
+    // 1. Invalidate any in-flight evaluation request callbacks
+    evalRequestIdRef.current++;
+
+    // 2. Clear textarea content and inline field errors
     setJdText('');
+    setJdTextError('');
+    setCandidateError('');
+    setSaveSuccessMsg('');
+    setSaveErrorMsg('');
+
+    // 3. Immediately stop evaluation and reset state to idle
+    setEvalState({ status: 'idle' });
+
+    // 4. Instruct background worker to abort network fetch and wipe storage
+    try {
+      chrome.runtime.sendMessage({ type: 'CANCEL_EVALUATION' });
+    } catch (_e) {}
+    await chrome.storage.local.remove(['evaluationState']);
+
+    showToast('Cleared JD and stopped evaluation.', 'info');
   };
 
   // Hand Evaluation to Background Service Worker
@@ -453,6 +473,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       showToast('Please fix the highlighted fields to evaluate.', 'error');
       return;
     }
+
+    const currentRequestId = ++evalRequestIdRef.current;
 
     setSaveSuccessMsg('');
     setSaveErrorMsg('');
@@ -501,6 +523,11 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
           resolve({ success: false, error: msgErr.message });
         }
       });
+
+      // If user clicked Clear or stopped the evaluation while it was running, discard the result!
+      if (evalRequestIdRef.current !== currentRequestId || response?.cancelled) {
+        return;
+      }
 
       if (response && response.success && response.result) {
         setEvalState({
@@ -623,12 +650,9 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     }
   };
 
-  // Recruiter Action: Not Applied (Clear out without DB save)
+  // Recruiter Action: Not Applied (Clear out without DB save & stop any active eval)
   const handleDiscard = async () => {
-    await chrome.storage.local.remove(['evaluationState']);
-    setEvalState({ status: 'idle' });
-    setSaveSuccessMsg('');
-    setJdText('');
+    await handleClear();
   };
 
   const selectedCandidate = candidates.find((c) => c.id === selectedCandidateId) || candidates[0];
@@ -1281,7 +1305,25 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                     <span className="jdm-progress-title">Evaluating Candidate Against JD</span>
                     <span className="jdm-progress-model-badge">gemini-3.5-flash-lite</span>
                   </div>
-                  <span className="jdm-progress-timer">{evalElapsedSeconds.toFixed(1)}s</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="jdm-progress-timer">{evalElapsedSeconds.toFixed(1)}s</span>
+                    <button
+                      type="button"
+                      onClick={handleClear}
+                      className="jdm-btn-action"
+                      style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        color: '#f87171',
+                        borderColor: 'rgba(239, 68, 68, 0.4)',
+                        background: 'rgba(239, 68, 68, 0.12)',
+                        cursor: 'pointer',
+                      }}
+                      title="Stop evaluation and clear"
+                    >
+                      ✕ Stop
+                    </button>
+                  </div>
                 </div>
 
                 <div className="jdm-progress-steps">

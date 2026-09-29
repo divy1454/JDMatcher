@@ -48,6 +48,8 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
+let activeEvaluationAbortController: AbortController | null = null;
+
 // Listen for messages from Content Script
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'START_EVALUATION') {
@@ -55,6 +57,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then((res) => sendResponse(res))
       .catch((err) => sendResponse({ success: false, error: err.message }));
     return true; // Keep message channel open for async response
+  }
+
+  if (message.type === 'CANCEL_EVALUATION') {
+    if (activeEvaluationAbortController) {
+      activeEvaluationAbortController.abort();
+      activeEvaluationAbortController = null;
+    }
+    chrome.storage.local.remove(['evaluationState']).then(() => {
+      sendResponse({ success: true, cancelled: true });
+    });
+    return true;
   }
 
   if (message.type === 'SAVE_APPLIED') {
@@ -263,6 +276,12 @@ async function handleEvaluation(payload: {
   };
   await chrome.storage.local.set({ evaluationState: loadingState });
 
+  if (activeEvaluationAbortController) {
+    activeEvaluationAbortController.abort();
+  }
+  const abortController = new AbortController();
+  activeEvaluationAbortController = abortController;
+
   try {
     if (!token) {
       const errorState: StoredEvaluationState = {
@@ -276,6 +295,7 @@ async function handleEvaluation(payload: {
 
     const response = await fetch(`${baseUrl}/analyze/eval`, {
       method: 'POST',
+      signal: abortController.signal,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
@@ -349,6 +369,10 @@ async function handleEvaluation(payload: {
     }
 
     const data = await response.json();
+    if (abortController.signal.aborted) {
+      return { success: false, cancelled: true };
+    }
+
     const successState: StoredEvaluationState = {
       ...loadingState,
       status: 'success',
@@ -357,6 +381,12 @@ async function handleEvaluation(payload: {
     await chrome.storage.local.set({ evaluationState: successState });
     return { success: true, result: data };
   } catch (error: any) {
+    if (error.name === 'AbortError' || abortController.signal.aborted) {
+      console.log('[JDMatcher] Evaluation cancelled by user.');
+      await chrome.storage.local.remove(['evaluationState']);
+      return { success: false, cancelled: true };
+    }
+
     const errState: StoredEvaluationState = {
       ...loadingState,
       status: 'error',
@@ -364,6 +394,10 @@ async function handleEvaluation(payload: {
     };
     await chrome.storage.local.set({ evaluationState: errState });
     return { success: false, error: errState.errorMessage };
+  } finally {
+    if (activeEvaluationAbortController === abortController) {
+      activeEvaluationAbortController = null;
+    }
   }
 }
 
