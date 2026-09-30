@@ -22,6 +22,7 @@ import {
   Clock,
   Sparkles,
   RotateCcw,
+  Filter,
 } from 'lucide-react';
 
 interface MatchedJdItem {
@@ -266,55 +267,58 @@ export default function OrgMatchedJdsPage() {
 
         {/* Filter by Candidate */}
         <div className="sm:col-span-3">
-          <div className="relative">
+          <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
+            <User className="pointer-events-none absolute left-3.5 h-4 w-4 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
             <select
               value={selectedCandidate}
               onChange={(e) => setSelectedCandidate(e.target.value)}
-              className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
+              className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
             >
-              <option value="">All Candidates ({uniqueCandidateMap.size})</option>
+              <option value="" className="bg-slate-900 text-slate-300">All Candidates ({uniqueCandidateMap.size})</option>
               {Array.from(uniqueCandidateMap.entries()).map(([id, name]) => (
-                <option key={id} value={id}>
+                <option key={id} value={id} className="bg-slate-900 text-white">
                   {name}
                 </option>
               ))}
             </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
+            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
           </div>
         </div>
 
         {/* Filter by Recruiter */}
         <div className="sm:col-span-3">
-          <div className="relative">
+          <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
+            <Users className="pointer-events-none absolute left-3.5 h-4 w-4 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
             <select
               value={selectedRecruiter}
               onChange={(e) => setSelectedRecruiter(e.target.value)}
-              className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
+              className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
             >
-              <option value="">All Recruiters ({uniqueRecruiterMap.size})</option>
+              <option value="" className="bg-slate-900 text-slate-300">All Recruiters ({uniqueRecruiterMap.size})</option>
               {Array.from(uniqueRecruiterMap.entries()).map(([id, name]) => (
-                <option key={id} value={id}>
+                <option key={id} value={id} className="bg-slate-900 text-white">
                   {name}
                 </option>
               ))}
             </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
+            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
           </div>
         </div>
 
         {/* Verdict Filter */}
         <div className="sm:col-span-2">
-          <div className="relative">
+          <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
+            <Filter className="pointer-events-none absolute left-3.5 h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
             <select
               value={verdictFilter}
               onChange={(e) => setVerdictFilter(e.target.value)}
-              className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
+              className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
             >
-              <option value="">All Verdicts</option>
-              <option value="APPLY">APPLY Only</option>
-              <option value="SKIP">SKIP Only</option>
+              <option value="" className="bg-slate-900 text-slate-300">All Verdicts</option>
+              <option value="APPLY" className="bg-slate-900 text-emerald-300">✓ APPLY Only</option>
+              <option value="SKIP" className="bg-slate-900 text-rose-300">✕ SKIP Only</option>
             </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
+            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
           </div>
         </div>
       </div>

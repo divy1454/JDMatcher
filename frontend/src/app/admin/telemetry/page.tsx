@@ -24,6 +24,7 @@ import {
   Layers,
   ArrowUpRight,
   Building2,
+  ChevronDown,
 } from 'lucide-react';
 
 interface TelemetryData {
@@ -167,22 +168,23 @@ export default function TelemetryPage() {
         {/* Filters: Agency Dropdown and Timeframe */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Requirement 6: Agency Filter Dropdown */}
-          <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-1.5 backdrop-blur">
-            <Building2 className="h-4 w-4 text-indigo-400 shrink-0" />
+          <div className="group relative flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-1.5 backdrop-blur transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20">
+            <Building2 className="h-4 w-4 text-indigo-400 shrink-0 group-hover:scale-105 transition-transform" />
             <select
               value={selectedOrgId}
               onChange={(e) => setSelectedOrgId(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-200 outline-none cursor-pointer"
+              className="appearance-none bg-transparent pr-6 text-xs font-semibold text-slate-200 outline-none cursor-pointer"
             >
               <option value="all" className="bg-slate-900 text-white">
-                All Agencies (Global)
+                🌐 All Agencies (Global)
               </option>
               {organizations.map((org) => (
                 <option key={org.id} value={org.id} className="bg-slate-900 text-white">
-                  {org.name} ({org.slug})
+                  🏢 {org.name} ({org.slug})
                 </option>
               ))}
             </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
           </div>
 
           {/* Timeframe Filter Dropdown */}

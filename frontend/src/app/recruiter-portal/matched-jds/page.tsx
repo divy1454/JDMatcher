@@ -21,6 +21,7 @@ import {
   Check,
   User,
   RotateCcw,
+  Filter,
 } from 'lucide-react';
 
 interface MatchedJdItem {
@@ -182,16 +183,17 @@ export default function RecruiterMatchedJdsPage() {
     setVerdictFilter('');
   };
 
-  // Compile candidate options from both API and items
+  // Compile candidate options strictly from recruiter's assigned/created candidates
+  const allowedCandidateIds = new Set(candidates.map((c) => c.id));
   const uniqueCandidateMap = new Map<string, string>();
   candidates.forEach((c) => uniqueCandidateMap.set(c.id, c.fullName));
-  items.forEach((item) => {
-    if (item.candidateId && item.candidateName) {
-      uniqueCandidateMap.set(item.candidateId, item.candidateName);
-    }
-  });
 
   const filtered = items.filter((item) => {
+    // Recruiter isolation: strictly show matched JDs for candidates created or assigned to this recruiter
+    if (candidates.length > 0 && item.candidateId && !allowedCandidateIds.has(item.candidateId)) {
+      return false;
+    }
+
     const role = getDisplayRole(item.jobTitle, item.rawJdText).toLowerCase();
     const company = getDisplayCompany(item.companyOrClient, item.rawJdText).toLowerCase();
     const candidate = (item.candidateName || '').toLowerCase();
@@ -261,37 +263,39 @@ export default function RecruiterMatchedJdsPage() {
 
         {/* Filter by Candidate */}
         <div className="sm:col-span-3">
-          <div className="relative">
+          <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
+            <User className="pointer-events-none absolute left-3.5 h-4 w-4 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
             <select
               value={selectedCandidate}
               onChange={(e) => setSelectedCandidate(e.target.value)}
-              className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
+              className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
             >
-              <option value="">All Candidates ({uniqueCandidateMap.size})</option>
+              <option value="" className="bg-slate-900 text-slate-300">All Candidates ({uniqueCandidateMap.size})</option>
               {Array.from(uniqueCandidateMap.entries()).map(([id, name]) => (
-                <option key={id} value={id}>
+                <option key={id} value={id} className="bg-slate-900 text-white">
                   {name}
                 </option>
               ))}
             </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
+            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
           </div>
         </div>
 
         {/* Verdict Filter */}
         <div className="sm:col-span-2">
-          <div className="relative">
+          <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
+            <Filter className="pointer-events-none absolute left-3.5 h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
             <select
               value={verdictFilter}
               onChange={(e) => setVerdictFilter(e.target.value)}
-              className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
+              className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
             >
-              <option value="">All Verdicts</option>
-              <option value="PENDING">PENDING Only</option>
-              <option value="APPLY">APPLY Only</option>
-              <option value="SKIP">SKIP Only</option>
+              <option value="" className="bg-slate-900 text-slate-300">All Verdicts</option>
+              <option value="PENDING" className="bg-slate-900 text-amber-300">⏳ PENDING Only</option>
+              <option value="APPLY" className="bg-slate-900 text-emerald-300">✓ APPLY Only</option>
+              <option value="SKIP" className="bg-slate-900 text-rose-300">✕ SKIP Only</option>
             </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
+            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
           </div>
         </div>
 
@@ -328,21 +332,19 @@ export default function RecruiterMatchedJdsPage() {
             return (
               <div
                 key={item.id}
-                className={`rounded-2xl border bg-slate-900/60 p-5 backdrop-blur-xl transition ${
-                  isPending ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800 hover:border-slate-700'
-                }`}
+                className={`rounded-2xl border bg-slate-900/60 p-5 backdrop-blur-xl transition ${isPending ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800 hover:border-slate-700'
+                  }`}
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                          isApply
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${isApply
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                             : isPending
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse'
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        }`}
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse'
+                              : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          }`}
                       >
                         {isApply && <CheckCircle2 className="h-3.5 w-3.5" />}
                         {isPending && <Clock className="h-3.5 w-3.5" />}
@@ -419,7 +421,7 @@ export default function RecruiterMatchedJdsPage() {
                         title="Change mind to Not Applied (raw JD will be purged)"
                       >
                         <XCircle className="h-3.5 w-3.5 text-rose-400" />
-                        <span>Change to Not Applied</span>
+                        <span>Not Applied</span>
                       </button>
                     )}
 

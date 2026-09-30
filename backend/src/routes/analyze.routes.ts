@@ -45,11 +45,14 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const { candidateId, jdText } = parseResult.data;
       const user = request.user!;
 
-      // Candidate must belong to recruiter's organization
+      // Candidate must belong to recruiter's organization and (for recruiters) be assigned to them
       const candidateConditions = [
         eq(candidates.id, candidateId),
         eq(candidates.organizationId, user.organizationId!),
       ];
+      if (user.role === 'recruiter') {
+        candidateConditions.push(eq(candidates.createdByRecruiterId, user.id));
+      }
 
       // Step 1: Fetch Candidate and Resolve Prompt Template concurrently in parallel
       const [[candidate], promptTemplate] = await Promise.all([
@@ -186,11 +189,14 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       const user = request.user!;
       const data = parseResult.data;
 
-      // Candidate must belong to recruiter's organization
+      // Candidate must belong to recruiter's organization and (for recruiters) be assigned to them
       const candidateConditions = [
         eq(candidates.id, data.candidateId),
         eq(candidates.organizationId, user.organizationId!),
       ];
+      if (user.role === 'recruiter') {
+        candidateConditions.push(eq(candidates.createdByRecruiterId, user.id));
+      }
 
       const [candidate] = await db
         .select({ id: candidates.id })
@@ -289,17 +295,19 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         eq(matchedJds.id, id),
         eq(matchedJds.organizationId, user.organizationId!),
       ];
-      if (user.role === 'recruiter') {
-        conditions.push(eq(matchedJds.recruiterId, user.id));
-      }
 
       const [existing] = await db
-        .select()
+        .select({
+          id: matchedJds.id,
+          candidateId: matchedJds.candidateId,
+          createdByRecruiterId: candidates.createdByRecruiterId,
+        })
         .from(matchedJds)
+        .leftJoin(candidates, eq(matchedJds.candidateId, candidates.id))
         .where(and(...conditions))
         .limit(1);
 
-      if (!existing) {
+      if (!existing || (user.role === 'recruiter' && existing.createdByRecruiterId !== user.id)) {
         return reply.status(404).send({ error: 'NOT_FOUND', message: 'Matched JD not found or access denied' });
       }
 
@@ -348,9 +356,9 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
 
       const conditions = [eq(matchedJds.organizationId, user.organizationId!)];
 
-      // Recruiter isolation: Recruiters can only access matched JDs they personally evaluated
+      // Recruiter isolation: Recruiters can strictly only see matched JDs for candidates created by or assigned to them
       if (user.role === 'recruiter') {
-        conditions.push(eq(matchedJds.recruiterId, user.id));
+        conditions.push(eq(candidates.createdByRecruiterId, user.id));
       } else if (query.recruiterId) {
         conditions.push(eq(matchedJds.recruiterId, query.recruiterId));
       }

@@ -325,18 +325,20 @@
   left: 0;
   right: 0;
   z-index: 9999;
-  background: #0f172a;
-  border: 1px solid #334155;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(99, 102, 241, 0.35);
   border-radius: 12px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(99, 102, 241, 0.25), 0 0 24px -4px rgba(99, 102, 241, 0.15);
   overflow: hidden;
-  animation: jdmDropdownSlide 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: jdmDropdownSlide 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes jdmDropdownSlide {
   from {
     opacity: 0;
-    transform: translateY(-6px) scale(0.98);
+    transform: translateY(-8px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -392,6 +394,7 @@
 
 .jdm-dropdown-search-input:focus {
   border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
 }
 
 .jdm-dropdown-search-icon {
@@ -447,17 +450,19 @@
   padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   margin-bottom: 2px;
 }
 
 .jdm-candidate-option:hover {
-  background: #1e293b;
+  background: rgba(30, 41, 59, 0.8);
+  transform: translateX(3px);
 }
 
 .jdm-candidate-option.is-selected {
-  background: rgba(99, 102, 241, 0.18);
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.22), rgba(99, 102, 241, 0.08));
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
 }
 
 .jdm-candidate-option-left {

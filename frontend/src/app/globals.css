@@ -75,6 +75,99 @@
   background: rgba(100, 116, 139, 0.6);
 }
 
+/* Premium Dropdown & Select UI styling */
+select {
+  background-color: #0b0f19;
+  color: #f1f5f9;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+select option {
+  background-color: #0b0f19 !important;
+  color: #f1f5f9 !important;
+  padding: 10px 14px;
+}
+
+select option:checked {
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
+select option:hover {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+}
+
+select optgroup {
+  background-color: #0f172a !important;
+  color: #94a3b8 !important;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+/* Custom interactive select wrapper & element classes */
+.dropdown-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  background-color: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(12px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.dropdown-wrapper:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 4px 20px -2px rgba(99, 102, 241, 0.12);
+}
+
+.dropdown-wrapper:focus-within {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25), 0 4px 20px -2px rgba(99, 102, 241, 0.2);
+}
+
+.dropdown-select {
+  width: 100%;
+  appearance: none;
+  background: transparent;
+  padding: 0.625rem 2.25rem 0.625rem 2.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #e2e8f0;
+  outline: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.dropdown-icon-left {
+  position: absolute;
+  left: 0.875rem;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.dropdown-chevron {
+  position: absolute;
+  right: 0.875rem;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
+}
+
+.dropdown-wrapper:hover .dropdown-chevron {
+  transform: translateY(1px);
+}
+
+
 @media print {
   @page {
     size: A4;

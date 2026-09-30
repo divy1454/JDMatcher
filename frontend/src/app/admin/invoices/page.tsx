@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   X,
   Sparkles,
+  ChevronDown,
 } from 'lucide-react';
 import { BusinessInvoiceModal, InvoiceDetails } from '@/components/invoice/BusinessInvoiceModal';
 
@@ -370,28 +371,38 @@ export default function AdminInvoicesPage() {
 
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           {/* Agency Filter */}
-          <select
-            value={selectedOrgId}
-            onChange={(e) => setSelectedOrgId(e.target.value)}
-            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
-          >
-            <option value="all">All Agencies</option>
-            {organizations.map((org) => (
-              <option key={org.id} value={org.id}>{org.name}</option>
-            ))}
-          </select>
+          <div className="group relative flex items-center rounded-xl border border-slate-700 bg-slate-950/80 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
+            <Building2 className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
+            <select
+              value={selectedOrgId}
+              onChange={(e) => setSelectedOrgId(e.target.value)}
+              className="appearance-none bg-transparent py-2 pl-8 pr-8 text-xs font-semibold text-slate-200 outline-none cursor-pointer"
+            >
+              <option value="all" className="bg-slate-900 text-slate-300">All Agencies</option>
+              {organizations.map((org) => (
+                <option key={org.id} value={org.id} className="bg-slate-900 text-white">
+                  {org.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
+          </div>
 
           {/* Status Filter */}
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
-          >
-            <option value="all">All Statuses</option>
-            <option value="generated">Generated / Payment Due</option>
-            <option value="paid">Paid</option>
-            <option value="unbilled">Draft / Unbilled</option>
-          </select>
+          <div className="group relative flex items-center rounded-xl border border-slate-700 bg-slate-950/80 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
+            <Filter className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="appearance-none bg-transparent py-2 pl-8 pr-8 text-xs font-semibold text-slate-200 outline-none cursor-pointer"
+            >
+              <option value="all" className="bg-slate-900 text-slate-300">All Statuses</option>
+              <option value="generated" className="bg-slate-900 text-amber-300">⏳ Payment Due</option>
+              <option value="paid" className="bg-slate-900 text-emerald-300">✓ Paid</option>
+              <option value="unbilled" className="bg-slate-900 text-slate-400">📝 Draft / Unbilled</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
+          </div>
         </div>
       </div>
 
@@ -565,18 +576,22 @@ export default function AdminInvoicesPage() {
               {/* Select Agency */}
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Target Agency</label>
-                <select
-                  value={generateForm.organizationId}
-                  onChange={(e) => setGenerateForm({ ...generateForm, organizationId: e.target.value })}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
-                  required
-                >
-                  {organizations.map((org) => (
-                    <option key={org.id} value={org.id}>
-                      {org.name} ({org.slug})
-                    </option>
-                  ))}
-                </select>
+                <div className="group relative flex items-center rounded-xl border border-slate-700 bg-slate-950 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20">
+                  <Building2 className="pointer-events-none absolute left-3 h-4 w-4 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
+                  <select
+                    value={generateForm.organizationId}
+                    onChange={(e) => setGenerateForm({ ...generateForm, organizationId: e.target.value })}
+                    className="w-full appearance-none bg-transparent px-3 py-2.5 pl-9 pr-9 text-xs text-white outline-none cursor-pointer font-medium"
+                    required
+                  >
+                    {organizations.map((org) => (
+                      <option key={org.id} value={org.id} className="bg-slate-900 text-white">
+                        {org.name} ({org.slug})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
+                </div>
               </div>
 
               {/* Billing Month */}
