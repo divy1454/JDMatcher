@@ -24,7 +24,7 @@ export const clearanceEnum = pgEnum('security_clearance', [
   'Top Secret/SCI',
   'Polygraph'
 ]);
-export const evalVerdictEnum = pgEnum('eval_verdict', ['APPLY', 'SKIP']);
+export const evalVerdictEnum = pgEnum('eval_verdict', ['APPLY', 'SKIP', 'PENDING']);
 export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'pending', 'generated', 'paid', 'overdue', 'void']);
 
 // 1. ORGANIZATIONS (Agencies)
@@ -86,7 +86,7 @@ export const matchedJds = pgTable('matched_jds', {
   jobTitle: varchar('job_title', { length: 255 }).notNull(),
   companyOrClient: varchar('company_or_client', { length: 255 }),
   jobUrl: text('job_url'),
-  rawJdText: text('raw_jd_text').notNull(),
+  rawJdText: text('raw_jd_text').notNull().default(''),
   verdict: evalVerdictEnum('verdict').notNull(),
   matchScore: integer('match_score').notNull(),
   matchReasoning: text('match_reasoning').notNull(),

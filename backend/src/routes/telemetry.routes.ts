@@ -9,6 +9,7 @@ import { organizations, users, tokenConsumptionLedger, matchedJds } from '../db/
 
 const statsQuerySchema = z.object({
   timeframe: z.enum(['1h', '24h', '7d', '30d']).default('24h'),
+  organizationId: z.string().uuid().optional(),
 });
 
 export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
@@ -19,8 +20,9 @@ export const telemetryRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
     async (request, reply) => {
       const parseResult = statsQuerySchema.safeParse(request.query);
       const timeframe = parseResult.success ? parseResult.data.timeframe : '24h';
+      const organizationId = parseResult.success ? parseResult.data.organizationId : undefined;
 
-      const stats = await BillingService.getTelemetryStats(timeframe);
+      const stats = await BillingService.getTelemetryStats(timeframe, organizationId);
 
       // Server health and table row counts (robust when tables are empty)
       const countsResult = await db.execute<{

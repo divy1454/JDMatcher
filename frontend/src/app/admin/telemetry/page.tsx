@@ -23,6 +23,7 @@ import {
   Radio,
   Layers,
   ArrowUpRight,
+  Building2,
 } from 'lucide-react';
 
 interface TelemetryData {
@@ -65,13 +66,25 @@ export default function TelemetryPage() {
   const [isSseActive, setIsSseActive] = useState(false);
   const [pulseCount, setPulseCount] = useState(0);
 
+  interface OrgOption {
+    id: string;
+    name: string;
+    slug: string;
+  }
+  const [organizations, setOrganizations] = useState<OrgOption[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>('all');
+
   useEffect(() => {
     setIsMounted(true);
+    apiRequest('/orgs')
+      .then((orgs) => setOrganizations(orgs || []))
+      .catch((err) => console.error('Failed to load orgs for telemetry:', err));
   }, []);
 
   const fetchStats = async () => {
     try {
-      const result = await apiRequest(`/telemetry/stats?timeframe=${timeframe}`);
+      const orgQuery = selectedOrgId !== 'all' ? `&organizationId=${selectedOrgId}` : '';
+      const result = await apiRequest(`/telemetry/stats?timeframe=${timeframe}${orgQuery}`);
       setData(result);
     } catch (err) {
       console.error('Failed to load telemetry stats:', err);
@@ -82,7 +95,7 @@ export default function TelemetryPage() {
 
   useEffect(() => {
     fetchStats();
-  }, [timeframe]);
+  }, [timeframe, selectedOrgId]);
 
   // Connect to live Fastify SSE endpoint
   useEffect(() => {
@@ -151,20 +164,42 @@ export default function TelemetryPage() {
           </p>
         </div>
 
-        {/* Timeframe Filter Dropdown */}
-        <div className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/60 p-1 backdrop-blur">
-          {(['1h', '24h', '7d', '30d'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTimeframe(t)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition ${timeframe === t
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-                }`}
+        {/* Filters: Agency Dropdown and Timeframe */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Requirement 6: Agency Filter Dropdown */}
+          <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-1.5 backdrop-blur">
+            <Building2 className="h-4 w-4 text-indigo-400 shrink-0" />
+            <select
+              value={selectedOrgId}
+              onChange={(e) => setSelectedOrgId(e.target.value)}
+              className="bg-transparent text-xs font-semibold text-slate-200 outline-none cursor-pointer"
             >
-              {t}
-            </button>
-          ))}
+              <option value="all" className="bg-slate-900 text-white">
+                All Agencies (Global)
+              </option>
+              {organizations.map((org) => (
+                <option key={org.id} value={org.id} className="bg-slate-900 text-white">
+                  {org.name} ({org.slug})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Timeframe Filter Dropdown */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/60 p-1 backdrop-blur">
+            {(['1h', '24h', '7d', '30d'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTimeframe(t)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition ${timeframe === t
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                  }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

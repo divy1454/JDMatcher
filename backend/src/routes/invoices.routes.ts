@@ -85,6 +85,26 @@ export async function invoicesRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // 3b. GET /api/invoices/admin/agency-consumption (Super Admin: get exact agency consumption & live online USD to INR rate)
+  fastify.get(
+    '/admin/agency-consumption',
+    { preHandler: [authGuard, requireRole(['super_admin'])] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const query = request.query as { organizationId?: string; billingMonth?: string };
+      if (!query.organizationId || !query.billingMonth) {
+        return reply.status(400).send({ error: 'INVALID_QUERY', message: 'organizationId and billingMonth are required' });
+      }
+
+      try {
+        const consumption = await InvoiceService.getAgencyMonthConsumption(query.organizationId, query.billingMonth);
+        return reply.send(consumption);
+      } catch (err: any) {
+        request.log.error(err, 'Failed to fetch agency consumption');
+        return reply.status(500).send({ error: 'SERVER_ERROR', message: err.message });
+      }
+    }
+  );
+
   // 4. POST /api/invoices/admin/generate (Super Admin: generate/issue bill for an agency month)
   fastify.post(
     '/admin/generate',

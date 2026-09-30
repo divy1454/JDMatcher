@@ -114,7 +114,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       chrome.storage.local.set({ deviceId: fp });
     });
 
-    chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl'], async (data) => {
+    chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl', 'selectedCandidateId'], async (data) => {
       let activeApiUrl = data.apiUrl;
       // If apiUrl is missing, or set to the frontend domain, or contains old test URLs, fix to real backend!
       if (!activeApiUrl || activeApiUrl.includes('jd-matcher-pdm1') || activeApiUrl.includes('jdmatcher-fe') || activeApiUrl.includes('recruiter-portal') || activeApiUrl.includes('jdmatcher-api.onrender.com')) {
@@ -135,10 +135,15 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       }
       setFrontendUrl(activeFrontendUrl);
 
+      // Restore persisted recruiter-selected candidate ID
+      if (data.selectedCandidateId) {
+        setSelectedCandidateId(data.selectedCandidateId);
+      }
+
       if (data.token) {
         setToken(data.token);
         if (data.userName) setUserName(data.userName);
-        fetchCandidates(data.token);
+        fetchCandidates(data.token, data.selectedCandidateId);
       } else {
         // Automatically attempt to sync session from any active Recruiter Portal tab
         try {
@@ -146,7 +151,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             if (res && res.success && res.token) {
               setToken(res.token);
               if (res.userName) setUserName(res.userName);
-              fetchCandidates(res.token);
+              fetchCandidates(res.token, data.selectedCandidateId);
             }
           });
         } catch (_e) { }
@@ -190,7 +195,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   }, []);
 
   // Fetch Candidates for Recruiter's Agency (Recruiter isolation enforced by backend)
-  const fetchCandidates = async (authToken: string) => {
+  const fetchCandidates = async (authToken: string, preferredCandidateId?: string) => {
     if (!authToken) return;
     setIsLoadingCandidates(true);
     setCandidateFetchError('');
@@ -253,14 +258,29 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
       const list: Candidate[] = await res.json();
       const validList = Array.isArray(list) ? list : [];
-      setCandidates(validList);
       if (validList.length === 0) {
         setCandidateFetchError('NO_CANDIDATES');
+        setCandidates([]);
+        setSelectedCandidateId('');
+        return;
       }
-      setSelectedCandidateId((prev) => {
-        if (prev && validList.some((c) => c.id === prev)) return prev;
-        return validList.length > 0 ? validList[0].id : '';
-      });
+
+      // Check persistent candidate selection
+      const storageData = await chrome.storage.local.get(['selectedCandidateId']);
+      const persistentId = preferredCandidateId || storageData.selectedCandidateId || selectedCandidateId;
+
+      const activeId = (persistentId && validList.some((c) => c.id === persistentId))
+        ? persistentId
+        : validList[0].id;
+
+      setSelectedCandidateId(activeId);
+      chrome.storage.local.set({ selectedCandidateId: activeId });
+
+      const mappedList: Candidate[] = validList.map((c) => ({
+        ...c,
+        isSelected: c.id === activeId,
+      }));
+      setCandidates(mappedList);
     } catch (e: any) {
       console.error('Failed to fetch candidates:', e);
       setCandidateFetchError(e.message || 'Network connection failed. Verify backend is running.');
@@ -610,6 +630,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
           {
             type: 'SAVE_APPLIED',
             payload: {
+              matchedJdId: (evalState as any).result?.matchedJdId,
               candidateId: selectedCandidateId,
               jobTitle: titleToSave,
               companyOrClient: companyToSave,
@@ -687,11 +708,12 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
         chrome.runtime.sendMessage({
           type: 'SAVE_APPLIED',
           payload: {
+            matchedJdId: (evalState as any).result?.matchedJdId,
             candidateId: selectedCandidateId,
             jobTitle: titleToSave,
             companyOrClient: companyToSave,
             jobUrl: currentTabUrl,
-            rawJdText: jdText,
+            rawJdText: '', // Requirement 4: Zero raw JD text storage for Not Applied / SKIP
             verdict: 'SKIP',
             matchScore: evalResult.matchScore || 0,
             matchReasoning: evalResult.verdictJustification || evalResult.reasoning || 'Evaluated and marked as Not Applied / Skipped',
@@ -1042,6 +1064,13 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setSelectedCandidateId(c.id);
+                                  chrome.storage.local.set({ selectedCandidateId: c.id });
+                                  setCandidates((prev) =>
+                                    prev.map((cand) => ({
+                                      ...cand,
+                                      isSelected: cand.id === c.id,
+                                    }))
+                                  );
                                   setCandidateError('');
                                   setIsDropdownOpen(false);
                                   setCandidateSearchQuery('');

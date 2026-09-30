@@ -402,12 +402,13 @@ async function handleEvaluation(payload: {
 }
 
 async function handleSaveApplied(payload: {
+  matchedJdId?: string;
   candidateId: string;
   jobTitle: string;
   companyOrClient?: string;
   jobUrl?: string;
-  rawJdText: string;
-  verdict: 'APPLY' | 'SKIP';
+  rawJdText?: string;
+  verdict: 'APPLY' | 'SKIP' | 'PENDING';
   matchScore: number;
   matchReasoning: string;
 }) {

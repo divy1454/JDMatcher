@@ -30,9 +30,10 @@ EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-  CREATE TYPE "eval_verdict" AS ENUM('APPLY', 'SKIP');
+  CREATE TYPE "eval_verdict" AS ENUM('APPLY', 'SKIP', 'PENDING');
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
+ALTER TYPE "eval_verdict" ADD VALUE IF NOT EXISTS 'PENDING';
 
 DO $$ BEGIN
   CREATE TYPE "invoice_status" AS ENUM('draft', 'pending', 'generated', 'paid', 'overdue', 'void');
@@ -92,12 +93,13 @@ CREATE TABLE IF NOT EXISTS "matched_jds" (
   "job_title" varchar(255) NOT NULL,
   "company_or_client" varchar(255),
   "job_url" text,
-  "raw_jd_text" text NOT NULL,
+  "raw_jd_text" text NOT NULL DEFAULT '',
   "verdict" "eval_verdict" NOT NULL,
   "match_score" integer NOT NULL,
   "match_reasoning" text NOT NULL,
   "applied_at" timestamp with time zone NOT NULL DEFAULT now()
 );
+ALTER TABLE "matched_jds" ALTER COLUMN "raw_jd_text" SET DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS "token_consumption_ledger" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),

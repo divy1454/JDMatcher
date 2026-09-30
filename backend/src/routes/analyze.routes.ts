@@ -20,12 +20,13 @@ const evaluateSchema = z.object({
 });
 
 const saveAppliedSchema = z.object({
+  matchedJdId: z.string().uuid().optional(),
   candidateId: z.string().uuid(),
   jobTitle: z.string().min(1),
   companyOrClient: z.string().optional(),
   jobUrl: z.string().optional(),
-  rawJdText: z.string().min(1),
-  verdict: z.enum(['APPLY', 'SKIP']),
+  rawJdText: z.string().optional().default(''),
+  verdict: z.enum(['APPLY', 'SKIP', 'PENDING']),
   matchScore: z.number().int().min(0).max(100),
   matchReasoning: z.string().min(1),
 });
@@ -100,8 +101,51 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
           request.log.error(billingErr, 'Background billing ledger recording failed');
         });
 
+      // Auto-record initial evaluation in matched_jds with verdict 'PENDING'
+      // If recruiter doesn't take action from extension, it will appear in recruiter portal to choose
+      let initialCompany = evalResponse.result.companyName || '';
+      let initialJobTitle = evalResponse.result.jobTitle || '';
+      if (!initialCompany && jdText) {
+        const compMatch = jdText.match(/(?:company|client|employer|organization|at|with)\s*[:\-–]?\s*([A-Z][A-Za-z0-9&.\s]{2,35})/);
+        if (compMatch && compMatch[1]) initialCompany = compMatch[1].trim();
+      }
+      if (!initialJobTitle && jdText) {
+        const titleMatch = jdText.match(/(?:job\s*title|role|position)\s*[:\-–]?\s*([^\n\r,\.]{3,50})/i);
+        if (titleMatch && titleMatch[1]) {
+          initialJobTitle = titleMatch[1].trim();
+        } else {
+          const firstLine = jdText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim().slice(0, 60);
+          if (firstLine && firstLine.length > 4 && !firstLine.toLowerCase().includes('job description')) {
+            initialJobTitle = firstLine;
+          }
+        }
+      }
+
+      let pendingMatchedJdId: string | undefined;
+      try {
+        const [pendingMatchedJd] = await db
+          .insert(matchedJds)
+          .values({
+            organizationId: user.organizationId!,
+            recruiterId: user.id,
+            candidateId: candidate.id,
+            jobTitle: initialJobTitle || 'Software Opportunity',
+            companyOrClient: initialCompany || null,
+            jobUrl: parseResult.data.jobUrl || null,
+            rawJdText: jdText,
+            verdict: 'PENDING',
+            matchScore: evalResponse.result.matchScore,
+            matchReasoning: evalResponse.result.verdictJustification || evalResponse.result.reasoning || '',
+          })
+          .returning({ id: matchedJds.id });
+        pendingMatchedJdId = pendingMatchedJd?.id;
+      } catch (insertErr) {
+        request.log.warn(insertErr, 'Failed to insert pending matched_jd record');
+      }
+
       // Constraint 5: Recruiters must NEVER see token costs or quota gauges!
       return reply.send({
+        matchedJdId: pendingMatchedJdId,
         candidateId: candidate.id,
         candidateName: candidate.fullName,
         candidateTitle: candidate.primaryTitle,
@@ -129,7 +173,7 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     }
   );
 
-  // POST /api/analyze/save-applied (Recruiter action: persists raw JD to DB)
+  // POST /api/analyze/save-applied (Recruiter action: persists applied or skipped status)
   fastify.post(
     '/save-applied',
     { preHandler: [authGuard, deviceGuard] },
@@ -177,26 +221,103 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         }
       }
 
-      const [newMatchedJd] = await db
-        .insert(matchedJds)
-        .values({
-          organizationId: user.organizationId!,
-          recruiterId: user.id,
-          candidateId: data.candidateId,
-          jobTitle: finalJobTitle || data.jobTitle,
-          companyOrClient: finalCompany || null,
-          jobUrl: data.jobUrl || null,
-          rawJdText: data.rawJdText,
-          verdict: data.verdict,
-          matchScore: data.matchScore,
-          matchReasoning: data.matchReasoning,
-        })
-        .returning();
+      // Requirement 4: If Not applied / SKIP, zero out raw JD text completely!
+      const rawTextToSave = data.verdict === 'SKIP' ? '' : (data.rawJdText || '');
+
+      let savedMatchedJd;
+
+      // If matchedJdId is provided, update existing record
+      if (data.matchedJdId) {
+        const [updated] = await db
+          .update(matchedJds)
+          .set({
+            jobTitle: finalJobTitle || data.jobTitle,
+            companyOrClient: finalCompany || null,
+            jobUrl: data.jobUrl || null,
+            rawJdText: rawTextToSave,
+            verdict: data.verdict,
+            matchScore: data.matchScore,
+            matchReasoning: data.matchReasoning,
+          })
+          .where(and(eq(matchedJds.id, data.matchedJdId), eq(matchedJds.organizationId, user.organizationId!)))
+          .returning();
+        savedMatchedJd = updated;
+      }
+
+      if (!savedMatchedJd) {
+        const [inserted] = await db
+          .insert(matchedJds)
+          .values({
+            organizationId: user.organizationId!,
+            recruiterId: user.id,
+            candidateId: data.candidateId,
+            jobTitle: finalJobTitle || data.jobTitle,
+            companyOrClient: finalCompany || null,
+            jobUrl: data.jobUrl || null,
+            rawJdText: rawTextToSave,
+            verdict: data.verdict,
+            matchScore: data.matchScore,
+            matchReasoning: data.matchReasoning,
+          })
+          .returning();
+        savedMatchedJd = inserted;
+      }
 
       return reply.send({
         success: true,
-        matchedJd: newMatchedJd,
+        matchedJd: savedMatchedJd,
       });
+    }
+  );
+
+  // PATCH /api/analyze/matched-jds/:id/verdict (Recruiter action: choose or switch verdict)
+  fastify.patch(
+    '/matched-jds/:id/verdict',
+    { preHandler: [authGuard] },
+    async (request, reply) => {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const bodySchema = z.object({
+        verdict: z.enum(['APPLY', 'SKIP']),
+      });
+      const parse = bodySchema.safeParse(request.body);
+      if (!parse.success) {
+        return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parse.error.issues });
+      }
+
+      const conditions = [
+        eq(matchedJds.id, id),
+        eq(matchedJds.organizationId, user.organizationId!),
+      ];
+      if (user.role === 'recruiter') {
+        conditions.push(eq(matchedJds.recruiterId, user.id));
+      }
+
+      const [existing] = await db
+        .select()
+        .from(matchedJds)
+        .where(and(...conditions))
+        .limit(1);
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'NOT_FOUND', message: 'Matched JD not found or access denied' });
+      }
+
+      // Requirement 4: If switching to Not Applied (SKIP), clear raw JD text completely
+      const updateData: { verdict: 'APPLY' | 'SKIP'; rawJdText?: string } = {
+        verdict: parse.data.verdict,
+      };
+      if (parse.data.verdict === 'SKIP') {
+        updateData.rawJdText = '';
+      }
+
+      const [updated] = await db
+        .update(matchedJds)
+        .set(updateData)
+        .where(and(...conditions))
+        .returning();
+
+      return reply.send({ success: true, matchedJd: updated });
     }
   );
 
@@ -238,7 +359,7 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         conditions.push(eq(matchedJds.candidateId, query.candidateId));
       }
 
-      if (query.verdict && (query.verdict === 'APPLY' || query.verdict === 'SKIP')) {
+      if (query.verdict && (query.verdict === 'APPLY' || query.verdict === 'SKIP' || query.verdict === 'PENDING')) {
         conditions.push(eq(matchedJds.verdict, query.verdict as any));
       }
 

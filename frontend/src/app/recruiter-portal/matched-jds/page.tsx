@@ -31,7 +31,7 @@ interface MatchedJdItem {
   companyOrClient: string | null;
   jobUrl: string | null;
   rawJdText: string;
-  verdict: 'APPLY' | 'SKIP';
+  verdict: 'APPLY' | 'SKIP' | 'PENDING';
   matchScore: number;
   matchReasoning: string;
   appliedAt: string;
@@ -78,6 +78,33 @@ export default function RecruiterMatchedJdsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedJdId, setCopiedJdId] = useState<string | null>(null);
   const [copiedReasoningId, setCopiedReasoningId] = useState<string | null>(null);
+  const [updatingVerdictId, setUpdatingVerdictId] = useState<string | null>(null);
+
+  const handleUpdateVerdict = async (id: string, newVerdict: 'APPLY' | 'SKIP') => {
+    setUpdatingVerdictId(id);
+    try {
+      await apiRequest(`/analyze/matched-jds/${id}/verdict`, {
+        method: 'PATCH',
+        body: JSON.stringify({ verdict: newVerdict }),
+      });
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            return {
+              ...item,
+              verdict: newVerdict,
+              rawJdText: newVerdict === 'SKIP' ? '' : item.rawJdText,
+            };
+          }
+          return item;
+        })
+      );
+    } catch (err: any) {
+      console.error('Failed to update verdict:', err);
+    } finally {
+      setUpdatingVerdictId(null);
+    }
+  };
 
   const fetchMatchedJds = async () => {
     try {
@@ -260,6 +287,7 @@ export default function RecruiterMatchedJdsPage() {
               className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 pr-8 text-sm text-slate-300 outline-none focus:border-slate-700"
             >
               <option value="">All Verdicts</option>
+              <option value="PENDING">PENDING Only</option>
               <option value="APPLY">APPLY Only</option>
               <option value="SKIP">SKIP Only</option>
             </select>
@@ -291,13 +319,18 @@ export default function RecruiterMatchedJdsPage() {
           {filtered.map((item) => {
             const isExpanded = expandedId === item.id;
             const isApply = item.verdict === 'APPLY';
+            const isPending = item.verdict === 'PENDING';
+            const isSkip = item.verdict === 'SKIP';
+            const isUpdating = updatingVerdictId === item.id;
             const displayRole = getDisplayRole(item.jobTitle, item.rawJdText);
             const displayCompany = getDisplayCompany(item.companyOrClient, item.rawJdText);
 
             return (
               <div
                 key={item.id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl transition hover:border-slate-700"
+                className={`rounded-2xl border bg-slate-900/60 p-5 backdrop-blur-xl transition ${
+                  isPending ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800 hover:border-slate-700'
+                }`}
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-2">
@@ -306,11 +339,15 @@ export default function RecruiterMatchedJdsPage() {
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
                           isApply
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : isPending
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse'
                             : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                         }`}
                       >
-                        {isApply ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-                        {item.verdict}
+                        {isApply && <CheckCircle2 className="h-3.5 w-3.5" />}
+                        {isPending && <Clock className="h-3.5 w-3.5" />}
+                        {isSkip && <XCircle className="h-3.5 w-3.5" />}
+                        {isPending ? 'PENDING DECISION' : isApply ? 'APPLIED' : 'NOT APPLIED'}
                       </span>
 
                       <span className="text-xs font-black text-slate-200">
@@ -347,7 +384,45 @@ export default function RecruiterMatchedJdsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Requirement 2: Action buttons for jobs without verdict from extension */}
+                    {isPending && (
+                      <div className="flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-1">
+                        <span className="px-2 text-[11px] font-semibold text-amber-300">Choose Action:</span>
+                        <button
+                          onClick={() => handleUpdateVerdict(item.id, 'APPLY')}
+                          disabled={isUpdating}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-emerald-500 transition active:scale-95 disabled:opacity-50"
+                          title="Confirm applied to this job"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          <span>Applied</span>
+                        </button>
+                        <button
+                          onClick={() => handleUpdateVerdict(item.id, 'SKIP')}
+                          disabled={isUpdating}
+                          className="inline-flex items-center gap-1 rounded-lg bg-rose-600/90 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-rose-500 transition active:scale-95 disabled:opacity-50"
+                          title="Mark as not applied"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                          <span>Not Applied</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Requirement 3: If already selected as Applied, recruiter can change mind to Not Applied */}
+                    {isApply && (
+                      <button
+                        onClick={() => handleUpdateVerdict(item.id, 'SKIP')}
+                        disabled={isUpdating}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 active:scale-95 disabled:opacity-50"
+                        title="Change mind to Not Applied (raw JD will be purged)"
+                      >
+                        <XCircle className="h-3.5 w-3.5 text-rose-400" />
+                        <span>Change to Not Applied</span>
+                      </button>
+                    )}
+
                     {item.jobUrl && (
                       <a
                         href={item.jobUrl}
@@ -406,34 +481,46 @@ export default function RecruiterMatchedJdsPage() {
                       </div>
                     </div>
 
-                    {/* Right: Full Raw JD Text with Copy Button */}
+                    {/* Right: Full Raw JD Text or Data Privacy Notice */}
                     <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col justify-between">
                       <div>
                         <div className="mb-2 flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-400">
                             Raw Job Description Text
                           </span>
-                          <button
-                            onClick={() => handleCopyText(item.rawJdText, item.id, 'jd')}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition"
-                            title="Copy full raw job description text"
-                          >
-                            {copiedJdId === item.id ? (
-                              <>
-                                <Check className="h-3.5 w-3.5 text-emerald-400" />
-                                <span className="font-semibold">Copied JD!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3.5 w-3.5" />
-                                <span>Copy JD</span>
-                              </>
-                            )}
-                          </button>
+                          {item.rawJdText && (
+                            <button
+                              onClick={() => handleCopyText(item.rawJdText, item.id, 'jd')}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition"
+                              title="Copy full raw job description text"
+                            >
+                              {copiedJdId === item.id ? (
+                                <>
+                                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                                  <span className="font-semibold">Copied JD!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span>Copy JD</span>
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
-                        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-slate-400 leading-relaxed scrollbar-thin">
-                          {item.rawJdText}
-                        </pre>
+                        {item.rawJdText ? (
+                          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-xs text-slate-400 leading-relaxed scrollbar-thin">
+                            {item.rawJdText}
+                          </pre>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+                            <XCircle className="mx-auto h-6 w-6 text-slate-600 mb-2" />
+                            <p className="font-medium text-slate-300">Raw JD text omitted</p>
+                            <p className="mt-1 text-slate-500">
+                              Raw job description text was removed per data governance upon marking as Not Applied. Evaluation count and metrics are retained for agency reporting.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

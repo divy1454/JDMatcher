@@ -283,13 +283,11 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         .groupBy(matchedJds.verdict);
 
       const applyCount = verdictRows.find((r) => r.verdict === 'APPLY')?.count || 0;
-      const explicitSkipCount = verdictRows.find((r) => r.verdict === 'SKIP')?.count || 0;
+      const skipCount = verdictRows.find((r) => r.verdict === 'SKIP')?.count || 0;
+      const pendingCount = verdictRows.find((r) => r.verdict === 'PENDING')?.count || 0;
       const otherCount = verdictRows
-        .filter((r) => r.verdict !== 'APPLY' && r.verdict !== 'SKIP')
+        .filter((r) => r.verdict !== 'APPLY' && r.verdict !== 'SKIP' && r.verdict !== 'PENDING')
         .reduce((sum, r) => sum + r.count, 0);
-
-      // Any evaluations evaluated by recruiters that were not applied or were explicitly skipped:
-      const skipCount = Math.max(explicitSkipCount, Math.max(0, totalEvaluationsCount - applyCount));
 
       return reply.send({
         dailyStats,
@@ -297,6 +295,7 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         verdictStats: {
           applyCount,
           skipCount,
+          pendingCount,
           otherCount,
         },
       });

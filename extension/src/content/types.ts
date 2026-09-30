@@ -4,6 +4,7 @@ export interface Candidate {
   primaryTitle: string;
   createdByRecruiterId?: string | null;
   recruiterName?: string | null;
+  isSelected?: boolean;
 }
 
 export interface EvaluationResult {

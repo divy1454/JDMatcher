@@ -46,6 +46,11 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
         eq(candidates.isActive, true),
       ];
 
+      // Recruiter isolation: Recruiters can ONLY see candidates they created or assigned to them
+      if (user.role === 'recruiter') {
+        conditions.push(eq(candidates.createdByRecruiterId, user.id));
+      }
+
       const list = await db
         .select({
           id: candidates.id,
@@ -89,6 +94,11 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
         eq(candidates.id, id),
         eq(candidates.organizationId, user.organizationId!),
       ];
+
+      // Recruiter isolation: Recruiters can ONLY access candidates they created or assigned to them
+      if (user.role === 'recruiter') {
+        conditions.push(eq(candidates.createdByRecruiterId, user.id));
+      }
 
       const [candidate] = await db
         .select()

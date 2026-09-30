@@ -230,7 +230,104 @@ export class InvoiceService {
   }
 
   /**
+   * Helper to fetch live USD to INR exchange rate with fallbacks
+   */
+  static async fetchLiveUsdToInrRate(): Promise<{ rate: number; isLive: boolean }> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch('https://open.er-api.com/v6/latest/USD', { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data: any = await res.json();
+        if (data && data.rates && typeof data.rates.INR === 'number') {
+          return { rate: Number(data.rates.INR.toFixed(2)), isLive: true };
+        }
+      }
+    } catch (_err) {
+      try {
+        const controller2 = new AbortController();
+        const timeoutId2 = setTimeout(() => controller2.abort(), 3000);
+        const res2 = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR', { signal: controller2.signal });
+        clearTimeout(timeoutId2);
+        if (res2.ok) {
+          const data2: any = await res2.json();
+          if (data2 && data2.rates && typeof data2.rates.INR === 'number') {
+            return { rate: Number(data2.rates.INR.toFixed(2)), isLive: true };
+          }
+        }
+      } catch (_err2) {}
+    }
+    return { rate: this.DEFAULT_USD_TO_INR_RATE, isLive: false };
+  }
+
+  /**
+   * Super Admin helper: Fetch exact agency ledger consumption for a billing month
+   */
+  static async getAgencyMonthConsumption(organizationId: string, billingMonth: string) {
+    const [year, m] = billingMonth.split('-').map(Number);
+    const periodStart = new Date(Date.UTC(year, m - 1, 1));
+    const periodEnd = new Date(Date.UTC(year, m, 0, 23, 59, 59, 999));
+
+    const [org] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, organizationId))
+      .limit(1);
+
+    if (!org) {
+      throw new Error(`Organization ${organizationId} not found`);
+    }
+
+    const [ledgerStats] = await db
+      .select({
+        evaluations: sql<number>`count(${tokenConsumptionLedger.id})::int`,
+        inputTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.inputTokens}), 0)::int`,
+        outputTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.outputTokens}), 0)::int`,
+        totalTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.totalTokens}), 0)::int`,
+        cost: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+      })
+      .from(tokenConsumptionLedger)
+      .where(
+        and(
+          eq(tokenConsumptionLedger.organizationId, organizationId),
+          gte(tokenConsumptionLedger.timestamp, periodStart),
+          lte(tokenConsumptionLedger.timestamp, periodEnd)
+        )
+      );
+
+    const evaluations = ledgerStats?.evaluations || 0;
+    const inputTokens = ledgerStats?.inputTokens || 0;
+    const outputTokens = ledgerStats?.outputTokens || 0;
+    const totalTokens = ledgerStats?.totalTokens || (inputTokens + outputTokens);
+    const multiplier = parseFloat(org.profitMultiplier) || 4.0;
+    const inputRatePerM = Number((0.30 * multiplier).toFixed(2));
+    const outputRatePerM = Number((2.50 * multiplier).toFixed(2));
+    const inputCostUsd = Number(((inputTokens / 1_000_000) * inputRatePerM).toFixed(4));
+    const outputCostUsd = Number(((outputTokens / 1_000_000) * outputRatePerM).toFixed(4));
+    const subtotalUsd = Number((inputCostUsd + outputCostUsd).toFixed(4));
+
+    const liveRateInfo = await this.fetchLiveUsdToInrRate();
+    const totalInr = Number((subtotalUsd * liveRateInfo.rate).toFixed(2));
+
+    return {
+      organizationId,
+      organizationName: org.name,
+      billingMonth,
+      evaluations,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      subtotalUsd,
+      exchangeRateInr: liveRateInfo.rate,
+      isLiveRate: liveRateInfo.isLive,
+      totalInr,
+    };
+  }
+
+  /**
    * Super Admin action: Generate or update an invoice for an agency month.
+   * Charges strictly for exact agency consumed tokens.
    */
   static async generateInvoice(params: {
     organizationId: string;
@@ -242,7 +339,11 @@ export class InvoiceService {
     dueDateDays?: number;
   }) {
     const { organizationId, billingMonth, superAdminEmail } = params;
-    const rate = params.exchangeRateInr || this.DEFAULT_USD_TO_INR_RATE;
+    let rate = params.exchangeRateInr;
+    if (!rate || rate <= 0) {
+      const live = await this.fetchLiveUsdToInrRate();
+      rate = live.rate;
+    }
     const dueDays = params.dueDateDays || 15;
 
     // Check organization
@@ -284,29 +385,13 @@ export class InvoiceService {
       );
 
     const evaluations = ledgerStats?.evaluations || 0;
-    let inputTokens = ledgerStats?.inputTokens || 0;
-    let outputTokens = ledgerStats?.outputTokens || 0;
+    const inputTokens = ledgerStats?.inputTokens || 0;
+    const outputTokens = ledgerStats?.outputTokens || 0;
 
-    let subtotalUsd: number;
-    let inputCostUsd: number;
-    let outputCostUsd: number;
-
-    if (params.customSubtotalUsd !== undefined && params.customSubtotalUsd > 0) {
-      subtotalUsd = params.customSubtotalUsd;
-      // Proportional token cost derivation based on 1.20 vs 10.00 pricing ratio
-      inputCostUsd = Number((subtotalUsd * 0.058988).toFixed(4));
-      outputCostUsd = Number((subtotalUsd - inputCostUsd).toFixed(4));
-      if (inputTokens === 0) {
-        inputTokens = Math.round((inputCostUsd / inputRatePerM) * 1_000_000);
-      }
-      if (outputTokens === 0) {
-        outputTokens = Math.round((outputCostUsd / outputRatePerM) * 1_000_000);
-      }
-    } else {
-      inputCostUsd = Number(((inputTokens / 1_000_000) * inputRatePerM).toFixed(4));
-      outputCostUsd = Number(((outputTokens / 1_000_000) * outputRatePerM).toFixed(4));
-      subtotalUsd = Number((inputCostUsd + outputCostUsd).toFixed(4));
-    }
+    // Requirement 5: strictly use actual consumed tokens and billed cost!
+    const inputCostUsd = Number(((inputTokens / 1_000_000) * inputRatePerM).toFixed(4));
+    const outputCostUsd = Number(((outputTokens / 1_000_000) * outputRatePerM).toFixed(4));
+    const subtotalUsd = Number((inputCostUsd + outputCostUsd).toFixed(4));
 
     const totalTokens = inputTokens + outputTokens;
     const taxUsd = 0; // Standard zero export tax

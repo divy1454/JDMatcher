@@ -138,7 +138,7 @@ export class BillingService {
     return { success: true, previousBilled, auditTimestamp };
   }
 
-  static async getTelemetryStats(timeframe: '1h' | '24h' | '7d' | '30d' = '24h') {
+  static async getTelemetryStats(timeframe: '1h' | '24h' | '7d' | '30d' = '24h', organizationId?: string) {
     const now = new Date();
     const timeframeMs = {
       '1h': 60 * 60 * 1000,
@@ -148,6 +148,11 @@ export class BillingService {
     }[timeframe];
 
     const sinceDate = new Date(now.getTime() - timeframeMs);
+
+    const conditions = [gte(tokenConsumptionLedger.timestamp, sinceDate)];
+    if (organizationId) {
+      conditions.push(eq(tokenConsumptionLedger.organizationId, organizationId));
+    }
 
     // Aggregates over the timeframe
     const aggregateQuery = await db
@@ -159,7 +164,7 @@ export class BillingService {
         totalTokens: sql<number>`coalesce(sum(total_tokens), 0)`,
       })
       .from(tokenConsumptionLedger)
-      .where(gte(tokenConsumptionLedger.timestamp, sinceDate));
+      .where(and(...conditions));
 
     // Time-series breakdown for Recharts Area Chart
     const timeSeries = await db
@@ -170,7 +175,7 @@ export class BillingService {
         latencyMs: tokenConsumptionLedger.latencyMs,
       })
       .from(tokenConsumptionLedger)
-      .where(gte(tokenConsumptionLedger.timestamp, sinceDate))
+      .where(and(...conditions))
       .orderBy(tokenConsumptionLedger.timestamp);
 
     const stats = aggregateQuery[0] || {

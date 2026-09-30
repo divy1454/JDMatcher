@@ -68,17 +68,59 @@ export default function AdminInvoicesPage() {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
 
   // Generate Bill Modal
+  const getCurrentMonth = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [consumptionLoading, setConsumptionLoading] = useState(false);
+  const [agencyConsumption, setAgencyConsumption] = useState<{
+    evaluations: number;
+    totalTokens: number;
+    subtotalUsd: number;
+    exchangeRateInr: number;
+    isLiveRate: boolean;
+    totalInr: number;
+  } | null>(null);
+
   const [generateForm, setGenerateForm] = useState({
     organizationId: '',
-    billingMonth: '2026-10',
+    billingMonth: getCurrentMonth(),
     exchangeRateInr: 86.50,
-    customSubtotalUsd: 17.00,
+    customSubtotalUsd: 0.00,
     dueDateDays: 15,
     notes: 'Scan the UPI QR code to settle via Google Pay, PhonePe, or Paytm.',
   });
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateError, setGenerateError] = useState('');
+
+  // Automatically fetch exact agency consumption & live USD to INR rate
+  const loadAgencyConsumption = async (orgId: string, month: string) => {
+    if (!orgId || !month) return;
+    setConsumptionLoading(true);
+    try {
+      const data = await apiRequest(`/invoices/admin/agency-consumption?organizationId=${orgId}&billingMonth=${month}`);
+      if (data) {
+        setAgencyConsumption(data);
+        setGenerateForm((prev) => ({
+          ...prev,
+          customSubtotalUsd: data.subtotalUsd,
+          exchangeRateInr: data.exchangeRateInr,
+        }));
+      }
+    } catch (err: any) {
+      console.error('Failed to load agency consumption:', err);
+    } finally {
+      setConsumptionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isGenerateModalOpen && generateForm.organizationId && generateForm.billingMonth) {
+      loadAgencyConsumption(generateForm.organizationId, generateForm.billingMonth);
+    }
+  }, [isGenerateModalOpen, generateForm.organizationId, generateForm.billingMonth]);
 
   // Notification Banner
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -551,42 +593,70 @@ export default function AdminInvoicesPage() {
                 />
               </div>
 
-              {/* Amount USD & INR Exchange Rate */}
+              {/* Consumption Stats Banner */}
+              {consumptionLoading ? (
+                <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+                  <span>Fetching agency ledger consumption and live exchange rate...</span>
+                </div>
+              ) : agencyConsumption ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 text-xs text-slate-300 space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Evaluations Executed: <b className="text-white font-mono">{agencyConsumption.evaluations}</b></span>
+                    <span>Total Tokens Consumed: <b className="text-white font-mono">{agencyConsumption.totalTokens.toLocaleString()}</b></span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Amount USD & INR Exchange Rate - Non-Editable */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Subtotal (USD)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-semibold">Subtotal (USD)</label>
+                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.2 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
+                      Consumed (Locked)
+                    </span>
+                  </div>
                   <input
                     type="number"
-                    step="0.01"
-                    min="0"
+                    step="0.0001"
                     value={generateForm.customSubtotalUsd}
-                    onChange={(e) => setGenerateForm({ ...generateForm, customSubtotalUsd: parseFloat(e.target.value) || 0 })}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white font-mono focus:border-indigo-500 focus:outline-none"
+                    readOnly
+                    className="w-full rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-emerald-400 font-mono font-bold cursor-not-allowed outline-none select-all"
+                    title="Exact consumed amount derived directly from agency ledger telemetry. Non-editable."
                     required
                   />
+                  <p className="text-[10px] text-slate-500 mt-1">Based on exact tokens consumed by this agency</p>
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">USD to INR Rate</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-semibold">USD to INR Rate</label>
+                    <span className="inline-flex items-center gap-1 rounded bg-indigo-500/10 px-1.5 py-0.2 text-[10px] font-bold text-indigo-400 border border-indigo-500/20">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {agencyConsumption?.isLiveRate ? 'Live Online Rate' : 'Online Rate'}
+                    </span>
+                  </div>
                   <input
                     type="number"
                     step="0.01"
-                    min="1"
                     value={generateForm.exchangeRateInr}
-                    onChange={(e) => setGenerateForm({ ...generateForm, exchangeRateInr: parseFloat(e.target.value) || 86.5 })}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white font-mono focus:border-indigo-500 focus:outline-none"
+                    readOnly
+                    className="w-full rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-indigo-300 font-mono font-bold cursor-not-allowed outline-none select-all"
+                    title="Fetched live from real-time currency exchange API. Non-editable."
                     required
                   />
+                  <p className="text-[10px] text-slate-500 mt-1">Fetched online in real-time (Locked)</p>
                 </div>
               </div>
 
               {/* Converted INR Preview */}
               <div className="rounded-xl border border-indigo-500/20 bg-indigo-950/30 p-3 text-xs">
-                <span className="text-slate-400">Calculated Amount in INR: </span>
-                <span className="font-bold text-emerald-400 font-mono">
+                <span className="text-slate-400">Total Billed in INR: </span>
+                <span className="font-bold text-emerald-400 font-mono text-sm ml-1">
                   ₹{(generateForm.customSubtotalUsd * generateForm.exchangeRateInr).toFixed(2)}
                 </span>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  This exact amount will be populated in the UPI QR code for the agency upon scan.
+                  Calculated automatically from actual consumption & live conversion rate. Pre-fills UPI QR code upon generation.
                 </p>
               </div>
 
