@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Filter,
 } from 'lucide-react';
+import { CustomDropdown, DropdownOption } from '@/components/ui/CustomDropdown';
 
 interface MatchedJdItem {
   id: string;
@@ -188,6 +189,21 @@ export default function RecruiterMatchedJdsPage() {
   const uniqueCandidateMap = new Map<string, string>();
   candidates.forEach((c) => uniqueCandidateMap.set(c.id, c.fullName));
 
+  const candidateDropdownOptions: DropdownOption[] = [
+    { value: '', label: `All Candidates (${uniqueCandidateMap.size})` },
+    ...Array.from(uniqueCandidateMap.entries()).map(([id, name]) => ({
+      value: id,
+      label: name,
+    })),
+  ];
+
+  const verdictDropdownOptions: DropdownOption[] = [
+    { value: '', label: 'All Verdicts' },
+    { value: 'PENDING', label: 'PENDING Only', badge: 'Review', color: 'text-amber-300' },
+    { value: 'APPLY', label: 'APPLY Only', badge: 'Applied', color: 'text-emerald-300' },
+    { value: 'SKIP', label: 'SKIP Only', badge: 'Skipped', color: 'text-rose-300' },
+  ];
+
   const filtered = items.filter((item) => {
     // Recruiter isolation: strictly show matched JDs for candidates created or assigned to this recruiter
     if (candidates.length > 0 && item.candidateId && !allowedCandidateIds.has(item.candidateId)) {
@@ -263,40 +279,24 @@ export default function RecruiterMatchedJdsPage() {
 
         {/* Filter by Candidate */}
         <div className="sm:col-span-3">
-          <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
-            <User className="pointer-events-none absolute left-3.5 h-4 w-4 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
-            <select
-              value={selectedCandidate}
-              onChange={(e) => setSelectedCandidate(e.target.value)}
-              className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
-            >
-              <option value="" className="bg-slate-900 text-slate-300">All Candidates ({uniqueCandidateMap.size})</option>
-              {Array.from(uniqueCandidateMap.entries()).map(([id, name]) => (
-                <option key={id} value={id} className="bg-slate-900 text-white">
-                  {name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
-          </div>
+          <CustomDropdown
+            value={selectedCandidate}
+            onChange={setSelectedCandidate}
+            options={candidateDropdownOptions}
+            icon={<User className="h-4 w-4" />}
+            placeholder="Select Candidate"
+          />
         </div>
 
         {/* Verdict Filter */}
         <div className="sm:col-span-2">
-          <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 backdrop-blur">
-            <Filter className="pointer-events-none absolute left-3.5 h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-indigo-400 group-focus-within:text-indigo-400" />
-            <select
-              value={verdictFilter}
-              onChange={(e) => setVerdictFilter(e.target.value)}
-              className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
-            >
-              <option value="" className="bg-slate-900 text-slate-300">All Verdicts</option>
-              <option value="PENDING" className="bg-slate-900 text-amber-300">⏳ PENDING Only</option>
-              <option value="APPLY" className="bg-slate-900 text-emerald-300">✓ APPLY Only</option>
-              <option value="SKIP" className="bg-slate-900 text-rose-300">✕ SKIP Only</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-indigo-400 group-hover:translate-y-0.5" />
-          </div>
+          <CustomDropdown
+            value={verdictFilter}
+            onChange={setVerdictFilter}
+            options={verdictDropdownOptions}
+            icon={<Filter className="h-3.5 w-3.5" />}
+            placeholder="Select Verdict"
+          />
         </div>
 
         {/* Reset Filters */}

@@ -17,6 +17,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
+import { CustomDropdown, DropdownOption } from '@/components/ui/CustomDropdown';
 
 interface CandidateItem {
   id: string;
@@ -175,6 +176,34 @@ export default function CandidatesPage() {
     return matchesSearch && matchesRecruiter;
   });
 
+  const recruiterFilterOptions: DropdownOption[] = [
+    { value: '', label: 'All Recruiters' },
+    { value: 'unassigned', label: 'Unassigned Only', badge: '⚡ Open', color: 'text-amber-300' },
+    ...recruiters.map((r) => ({
+      value: r.id,
+      label: `Assigned: ${r.fullName}`,
+      sublabel: r.email,
+    })),
+  ];
+
+  const candidateAssignmentOptions: DropdownOption[] = [
+    { value: '', label: 'Unassigned', badge: '⚡ Open', color: 'text-slate-400' },
+    ...recruiters.map((r) => ({
+      value: r.id,
+      label: r.fullName,
+      sublabel: r.email,
+    })),
+  ];
+
+  const modalAssignmentOptions: DropdownOption[] = [
+    { value: '', label: 'Leave Unassigned', badge: '⚡ Open', color: 'text-slate-400' },
+    ...recruiters.map((r) => ({
+      value: r.id,
+      label: r.fullName,
+      sublabel: r.email,
+    })),
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -209,22 +238,14 @@ export default function CandidatesPage() {
         </div>
 
         {/* Recruiter Filter Dropdown */}
-        <div className="group relative flex items-center rounded-xl border border-slate-800 bg-slate-900/60 transition-all duration-200 hover:border-violet-500/50 hover:shadow-lg hover:shadow-violet-500/5 focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-500/20 backdrop-blur">
-          <Users className="pointer-events-none absolute left-3.5 h-4 w-4 text-slate-500 transition-colors group-hover:text-violet-400 group-focus-within:text-violet-400" />
-          <select
+        <div className="w-full sm:w-64">
+          <CustomDropdown
             value={recruiterFilter}
-            onChange={(e) => setRecruiterFilter(e.target.value)}
-            className="w-full appearance-none bg-transparent py-2 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-200 outline-none cursor-pointer"
-          >
-            <option value="" className="bg-slate-900 text-slate-300">All Recruiters</option>
-            <option value="unassigned" className="bg-slate-900 text-amber-300">⚡ Unassigned Only</option>
-            {recruiters.map((r) => (
-              <option key={r.id} value={r.id} className="bg-slate-900 text-white">
-                Assigned to: {r.fullName}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-violet-400 group-hover:translate-y-0.5" />
+            onChange={setRecruiterFilter}
+            options={recruiterFilterOptions}
+            icon={<Users className="h-4 w-4" />}
+            placeholder="Filter by Recruiter"
+          />
         </div>
       </div>
 
@@ -265,25 +286,16 @@ export default function CandidatesPage() {
 
                   <div className="flex flex-wrap items-center gap-3">
                     {/* Recruiter Assignment Dropdown */}
-                    <div className="group relative flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-950/80 px-2.5 py-1.5 transition-all duration-200 hover:border-violet-500/50 hover:bg-slate-900/90 focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-500/20">
-                      <UserCheck className="h-3.5 w-3.5 text-violet-400 shrink-0 group-hover:scale-110 transition-transform" />
-                      <span className="text-xs text-slate-400 shrink-0">Assigned:</span>
-                      <select
+                    <div className="w-48 sm:w-56">
+                      <CustomDropdown
+                        size="sm"
                         disabled={reassigningId === candidate.id}
                         value={candidate.createdByRecruiterId || ''}
-                        onChange={(e) => handleReassignRecruiter(candidate.id, e.target.value)}
-                        className="appearance-none bg-transparent pr-5 text-xs font-semibold text-slate-200 outline-none disabled:opacity-50 cursor-pointer"
-                      >
-                        <option value="" className="bg-slate-900 text-slate-400">
-                          ⚡ Unassigned
-                        </option>
-                        {recruiters.map((r) => (
-                          <option key={r.id} value={r.id} className="bg-slate-900 text-white">
-                            {r.fullName} ({r.email})
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-2 h-3 w-3 text-slate-500 transition-transform duration-200 group-hover:text-violet-400 group-hover:translate-y-0.5" />
+                        onChange={(val) => handleReassignRecruiter(candidate.id, val)}
+                        options={candidateAssignmentOptions}
+                        icon={<UserCheck className="h-3.5 w-3.5 text-violet-400" />}
+                        placeholder="Assign Recruiter"
+                      />
                     </div>
 
                     {/* View/Hide Resume Button */}
@@ -379,23 +391,14 @@ export default function CandidatesPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300">Assign to Recruiter</label>
-                <div className="group relative mt-1 flex items-center rounded-xl border border-slate-800 bg-slate-950 transition-all duration-200 hover:border-violet-500/50 hover:shadow-lg hover:shadow-violet-500/5 focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-500/20">
-                  <UserCheck className="pointer-events-none absolute left-3 h-4 w-4 text-slate-500 transition-colors group-hover:text-violet-400 group-focus-within:text-violet-400" />
-                  <select
-                    value={formData.createdByRecruiterId}
-                    onChange={(e) => setFormData({ ...formData, createdByRecruiterId: e.target.value })}
-                    className="w-full appearance-none bg-transparent p-2.5 pl-9 pr-9 text-sm font-medium text-white outline-none cursor-pointer"
-                  >
-                    <option value="" className="bg-slate-900 text-slate-400">⚡ Leave Unassigned</option>
-                    {recruiters.map((r) => (
-                      <option key={r.id} value={r.id} className="bg-slate-900 text-white">
-                        {r.fullName} ({r.email})
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500 transition-transform duration-200 group-hover:text-violet-400 group-hover:translate-y-0.5" />
-                </div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Assign to Recruiter</label>
+                <CustomDropdown
+                  value={formData.createdByRecruiterId}
+                  onChange={(val) => setFormData({ ...formData, createdByRecruiterId: val })}
+                  options={modalAssignmentOptions}
+                  icon={<UserCheck className="h-4 w-4 text-violet-400" />}
+                  placeholder="Assign to Recruiter"
+                />
                 <p className="mt-1.5 text-[11px] text-slate-500">
                   Assigned recruiters will immediately see this candidate in their Chrome Extension candidate dropdown.
                 </p>
