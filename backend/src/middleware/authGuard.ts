@@ -10,7 +10,10 @@ export interface AuthenticatedUser {
   email: string;
   fullName: string;
   deviceId: string | null;
+  deviceLastLockedAt: Date | null;
   deviceSwitchAllowedAfter: Date | null;
+  deviceMonthlySwitchCount: number;
+  createdAt: Date;
 }
 
 declare module '@fastify/jwt' {
@@ -49,7 +52,10 @@ export async function authGuard(request: FastifyRequest, reply: FastifyReply) {
       email: userRecord.email,
       fullName: userRecord.fullName,
       deviceId: userRecord.deviceId,
+      deviceLastLockedAt: userRecord.deviceLastLockedAt,
       deviceSwitchAllowedAfter: userRecord.deviceSwitchAllowedAfter,
+      deviceMonthlySwitchCount: userRecord.deviceMonthlySwitchCount || 0,
+      createdAt: userRecord.createdAt,
     };
   } catch (err) {
     return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or missing authentication token' });

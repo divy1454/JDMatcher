@@ -33,7 +33,7 @@ export default function OrgPortalLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-slate-950 text-slate-100">
+    <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       <OrgAdminSidebar />
       <main className="flex-1 overflow-y-auto p-8">{children}</main>
     </div>

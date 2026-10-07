@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiRequest } from '@/lib/api';
-import { Sliders, Save, Sparkles, Check, RotateCcw, Info } from 'lucide-react';
+import { Sliders, Save, Sparkles, Check, RotateCcw } from 'lucide-react';
 
 const VARIABLE_TOKENS = [
   '{{candidate_name}}',
@@ -75,7 +75,7 @@ export default function OrgEvaluationSettingsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Evaluation Prompt Settings</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Tailor the AI evaluation instructions to align with your agency's client contracts and placement standards.
+            Customize AI evaluation criteria for your agency's job matching.
           </p>
         </div>
 
@@ -92,21 +92,10 @@ export default function OrgEvaluationSettingsPage() {
           ) : (
             <>
               <Save className="h-4 w-4" />
-              <span>{isSaving ? 'Saving...' : 'Save Prompt Settings'}</span>
+              <span>{isSaving ? 'Saving...' : 'Save Settings'}</span>
             </>
           )}
         </button>
-      </div>
-
-      {/* Waterfall Hierarchy Info */}
-      <div className="rounded-2xl border border-violet-500/20 bg-violet-950/20 p-4 text-xs text-violet-300 backdrop-blur">
-        <div className="flex items-center gap-2 font-bold text-violet-200">
-          <Info className="h-4 w-4 text-violet-400" />
-          <span>Waterfall Prompt Execution</span>
-        </div>
-        <p className="mt-1 text-slate-300">
-          When your recruiters evaluate candidate matches in the Chrome Extension, the engine first checks for your agency custom prompt. If disabled or null, it seamlessly falls back to the Super Admin platform prompt.
-        </p>
       </div>
 
       {/* Prompt Mode Switch */}
@@ -138,7 +127,7 @@ export default function OrgEvaluationSettingsPage() {
           <div className="mb-2 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-violet-400" />
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Dynamic Variable Tokens (Click to append)
+              Prompt Variables
             </h2>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -160,7 +149,7 @@ export default function OrgEvaluationSettingsPage() {
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-xl">
         <div className="mb-3 flex items-center justify-between">
           <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            {useCustom ? 'Agency Custom Prompt Definition' : 'Active Inherited Global Prompt (Read-Only)'}
+            {useCustom ? 'Custom Evaluation Prompt' : 'Global Evaluation Prompt (Read-Only)'}
           </label>
           {useCustom && (
             <button

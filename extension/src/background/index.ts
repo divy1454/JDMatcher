@@ -2,15 +2,16 @@ import { StoredEvaluationState } from '../content/types.js';
 
 const API_BASE_URL = 'https://jdmatcher-be.onrender.com';
 
-// Generate or retrieve persistent machine hardware ID for recruiter seat locking
+// Retrieve persistent machine hardware ID for recruiter seat locking
 async function getOrCreateDeviceId(): Promise<string> {
   const data = await chrome.storage.local.get(['deviceId']);
+  if (data.deviceId && typeof data.deviceId === 'string' && data.deviceId.startsWith('mach_')) {
+    return data.deviceId;
+  }
   if (data.deviceId) {
     return data.deviceId;
   }
-  const newDeviceId = 'hw-' + crypto.randomUUID();
-  await chrome.storage.local.set({ deviceId: newDeviceId });
-  return newDeviceId;
+  return 'mach_pending_sync';
 }
 
 // Toggle floating widget when extension action icon is clicked in Chrome toolbar
@@ -80,6 +81,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'GET_DEVICE_ID') {
     getOrCreateDeviceId().then((deviceId) => sendResponse({ deviceId }));
     return true;
+  }
+
+  if (message.type === 'SET_DEVICE_ID') {
+    if (message.deviceId) {
+      chrome.storage.local.set({ deviceId: message.deviceId }).then(() => {
+        sendResponse({ success: true, deviceId: message.deviceId });
+      });
+      return true;
+    }
   }
 
   if (message.type === 'SYNC_FROM_PORTAL') {

@@ -52,12 +52,19 @@ export async function deviceGuard(request: FastifyRequest, reply: FastifyReply) 
     return;
   }
 
-  // Device mismatch: Device resetting must be authorized by Super Admin only
+  // Device mismatch: blocked from executing recruiter actions
+  const now = new Date();
+  const isCooldownExpired = !user.deviceSwitchAllowedAfter || now >= new Date(user.deviceSwitchAllowedAfter);
+  const effectiveSwitchCount = isCooldownExpired ? 0 : (user.deviceMonthlySwitchCount || 0);
+  const approvalTier = effectiveSwitchCount === 0 ? 'org_admin' : 'super_admin';
+  const adminName = approvalTier === 'org_admin' ? 'Organization Admin' : 'Super Admin';
+
   return reply.status(403).send({
     error: 'DEVICE_MISMATCH',
     code: 'DEVICE_LOCKED',
-    message: 'Recruiter seat is locked to a different physical computer. Device resetting must be performed by Super Admin only.',
+    message: `Recruiter seat is locked to a different physical computer. Please ask your ${adminName} to unlock or approve a machine transfer.`,
     lockedDeviceId: user.deviceId,
     incomingDeviceId: cleanDeviceId,
+    approvalTier,
   });
 }

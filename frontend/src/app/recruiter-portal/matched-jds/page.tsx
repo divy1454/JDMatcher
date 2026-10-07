@@ -111,10 +111,12 @@ export default function RecruiterMatchedJdsPage() {
   const fetchMatchedJds = async () => {
     try {
       const [jdsData, candidatesData] = await Promise.all([
-        apiRequest('/analyze/matched-jds'),
-        apiRequest('/candidates').catch(() => []),
+        apiRequest('/analyze/matched-jds?limit=all'),
+        apiRequest('/candidates?limit=all').catch(() => []),
       ]);
-      setItems(jdsData);
+      if (Array.isArray(jdsData)) {
+        setItems(jdsData);
+      }
       if (Array.isArray(candidatesData)) {
         setCandidates(candidatesData);
       }
@@ -199,9 +201,9 @@ export default function RecruiterMatchedJdsPage() {
 
   const verdictDropdownOptions: DropdownOption[] = [
     { value: '', label: 'All Verdicts' },
-    { value: 'PENDING', label: 'PENDING Only', badge: 'Review', color: 'text-amber-300' },
-    { value: 'APPLY', label: 'APPLY Only', badge: 'Applied', color: 'text-emerald-300' },
-    { value: 'SKIP', label: 'SKIP Only', badge: 'Skipped', color: 'text-rose-300' },
+    { value: 'PENDING', label: 'Pending', badge: 'Review', color: 'text-amber-300' },
+    { value: 'APPLY', label: 'Apply', badge: 'Applied', color: 'text-emerald-300' },
+    { value: 'SKIP', label: 'Skip', badge: 'Skipped', color: 'text-rose-300' },
   ];
 
   const filtered = items.filter((item) => {
@@ -241,13 +243,13 @@ export default function RecruiterMatchedJdsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-white">Agency Matched JDs</h1>
-            <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
-              {items.length} Evaluated
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Matched Job Descriptions</h1>
+            <span className="rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-2.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+              {filtered.length !== items.length ? `${filtered.length} of ${items.length} Evaluated` : `${items.length} Evaluated`}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
-            Repository of job evaluations saved via the JDMatcher Chrome Extension. Filter, review match scores, export to Excel, and copy details.
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Review matched job descriptions, match scores, and export evaluations.
           </p>
         </div>
 
@@ -266,14 +268,14 @@ export default function RecruiterMatchedJdsPage() {
       {/* Search and Filters Bar */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
         {/* Search Bar */}
-        <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 backdrop-blur sm:col-span-5">
-          <Search className="h-4 w-4 text-slate-500 shrink-0" />
+        <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3.5 py-2.5 shadow-xs backdrop-blur sm:col-span-5">
+          <Search className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by job title, company, candidate, or keywords..."
-            className="ml-2.5 w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none"
+            className="ml-2.5 w-full bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none"
           />
         </div>
 
@@ -332,19 +334,23 @@ export default function RecruiterMatchedJdsPage() {
             return (
               <div
                 key={item.id}
-                className={`rounded-2xl border bg-slate-900/60 p-5 backdrop-blur-xl transition ${isPending ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800 hover:border-slate-700'
-                  }`}
+                className={`rounded-2xl border p-5 shadow-xs backdrop-blur-xl transition ${
+                  isPending
+                    ? 'border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/10'
+                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${isApply
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                          isApply
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                             : isPending
-                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse'
-                              : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                          }`}
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse'
+                              : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                        }`}
                       >
                         {isApply && <CheckCircle2 className="h-3.5 w-3.5" />}
                         {isPending && <Clock className="h-3.5 w-3.5" />}
@@ -352,32 +358,32 @@ export default function RecruiterMatchedJdsPage() {
                         {isPending ? 'PENDING DECISION' : isApply ? 'APPLIED' : 'NOT APPLIED'}
                       </span>
 
-                      <span className="text-xs font-black text-slate-200">
-                        Score: <span className={item.matchScore >= 75 ? 'text-emerald-400' : 'text-amber-400'}>{item.matchScore}/100</span>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                        Score: <span className={item.matchScore >= 75 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>{item.matchScore}/100</span>
                       </span>
 
                       {/* Prominent Extracted Company Badge */}
-                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/25 px-2.5 py-0.5 text-xs font-semibold text-indigo-300">
-                        <Building2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/25 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                        <Building2 className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                         <span>{displayCompany}</span>
                       </span>
                     </div>
 
                     {/* Prominent Extracted Role Heading */}
                     <div className="flex items-center gap-2 pt-0.5">
-                      <Briefcase className="h-4 w-4 text-emerald-400 shrink-0" />
-                      <h3 className="text-base font-bold text-white tracking-tight">
+                      <Briefcase className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                         {displayRole}
                       </h3>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                       <span className="flex items-center gap-1">
-                        <User className="h-3 w-3 text-slate-500" />
-                        Candidate: <b className="text-slate-200">{item.candidateName || 'Bench Candidate'}</b>
+                        <User className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                        <b className="text-slate-800 dark:text-slate-200">{item.candidateName || 'Bench Candidate'}</b>
                       </span>
                       <span>•</span>
-                      <span>Company / Client: <b className="text-indigo-300 font-semibold">{displayCompany}</b></span>
+                      <span><b className="text-indigo-700 dark:text-indigo-300 font-semibold">{displayCompany}</b></span>
                       <span>•</span>
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
@@ -390,7 +396,6 @@ export default function RecruiterMatchedJdsPage() {
                     {/* Requirement 2: Action buttons for jobs without verdict from extension */}
                     {isPending && (
                       <div className="flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-1">
-                        <span className="px-2 text-[11px] font-semibold text-amber-300">Choose Action:</span>
                         <button
                           onClick={() => handleUpdateVerdict(item.id, 'APPLY')}
                           disabled={isUpdating}
@@ -417,10 +422,10 @@ export default function RecruiterMatchedJdsPage() {
                       <button
                         onClick={() => handleUpdateVerdict(item.id, 'SKIP')}
                         disabled={isUpdating}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 active:scale-95 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-300 transition hover:bg-rose-500/20 active:scale-95 disabled:opacity-50"
                         title="Change mind to Not Applied (raw JD will be purged)"
                       >
-                        <XCircle className="h-3.5 w-3.5 text-rose-400" />
+                        <XCircle className="h-3.5 w-3.5 text-rose-500 dark:text-rose-400" />
                         <span>Not Applied</span>
                       </button>
                     )}
@@ -430,19 +435,19 @@ export default function RecruiterMatchedJdsPage() {
                         href={item.jobUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-800/50 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white"
+                        className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/50 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 transition hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
-                        <span>Job Source</span>
+                        <span>Posting</span>
                       </a>
                     )}
 
                     <button
                       onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                      className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+                      className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 transition hover:bg-slate-200 dark:hover:bg-slate-700"
                     >
-                      <FileText className="h-3.5 w-3.5 text-emerald-400" />
-                      <span>{isExpanded ? 'Hide Details' : 'View AI Reasoning & JD'}</span>
+                      <FileText className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>{isExpanded ? 'Hide Details' : 'View Details'}</span>
                       {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                     </button>
                   </div>
@@ -457,7 +462,7 @@ export default function RecruiterMatchedJdsPage() {
                         <div className="mb-2 flex items-center justify-between">
                           <div className="flex items-center gap-2 text-xs font-bold text-violet-400">
                             <Sparkles className="h-4 w-4" />
-                            <span>AI Reasoning & Evaluation</span>
+                            <span>AI Reasoning</span>
                           </div>
                           <button
                             onClick={() => handleCopyText(item.matchReasoning, item.id, 'reasoning')}
@@ -472,7 +477,7 @@ export default function RecruiterMatchedJdsPage() {
                             ) : (
                               <>
                                 <Copy className="h-3.5 w-3.5 text-slate-400" />
-                                <span>Copy Reasoning</span>
+                                <span>Copy</span>
                               </>
                             )}
                           </button>
@@ -488,23 +493,23 @@ export default function RecruiterMatchedJdsPage() {
                       <div>
                         <div className="mb-2 flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-400">
-                            Raw Job Description Text
+                            Job Description
                           </span>
                           {item.rawJdText && (
                             <button
                               onClick={() => handleCopyText(item.rawJdText, item.id, 'jd')}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition"
-                              title="Copy full raw job description text"
+                              title="Copy full job description text"
                             >
                               {copiedJdId === item.id ? (
                                 <>
                                   <Check className="h-3.5 w-3.5 text-emerald-400" />
-                                  <span className="font-semibold">Copied JD!</span>
+                                  <span className="font-semibold">Copied!</span>
                                 </>
                               ) : (
                                 <>
                                   <Copy className="h-3.5 w-3.5" />
-                                  <span>Copy JD</span>
+                                  <span>Copy</span>
                                 </>
                               )}
                             </button>

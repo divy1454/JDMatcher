@@ -97,11 +97,11 @@ export default function OrgMatchedJdsPage() {
   const fetchData = async () => {
     try {
       const [jdsData, candidatesData, recruitersData] = await Promise.all([
-        apiRequest('/analyze/matched-jds'),
-        apiRequest('/candidates').catch(() => []),
+        apiRequest('/analyze/matched-jds?limit=all'),
+        apiRequest('/candidates?limit=all').catch(() => []),
         apiRequest('/recruiters').catch(() => []),
       ]);
-      setItems(jdsData);
+      if (Array.isArray(jdsData)) setItems(jdsData);
       if (Array.isArray(candidatesData)) setCandidates(candidatesData);
       if (Array.isArray(recruitersData)) setRecruiters(recruitersData);
     } catch (err) {
@@ -252,13 +252,13 @@ export default function OrgMatchedJdsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-white">Agency Matched Job Descriptions</h1>
-            <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
-              {items.length} Evaluated
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Matched Job Descriptions</h1>
+            <span className="rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-2.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+              {filtered.length !== items.length ? `${filtered.length} of ${items.length} Evaluated` : `${items.length} Evaluated`}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
-            Persistent repository of job postings evaluated by recruiters and saved with "Save as Applied". Filter by recruiter or candidate, export to Excel, and copy full descriptions.
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Review matched job descriptions, match scores, and export evaluations.
           </p>
         </div>
 
@@ -277,14 +277,14 @@ export default function OrgMatchedJdsPage() {
       {/* Multi-Factor Filter Bar */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
         {/* Search */}
-        <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 backdrop-blur sm:col-span-4">
-          <Search className="h-4 w-4 text-slate-500 shrink-0" />
+        <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3.5 py-2.5 shadow-xs backdrop-blur sm:col-span-4">
+          <Search className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search role, company, candidate, recruiter..."
-            className="ml-2.5 w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none"
+            className="ml-2.5 w-full bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none"
           />
         </div>
 
@@ -351,7 +351,7 @@ export default function OrgMatchedJdsPage() {
             return (
               <div
                 key={item.id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl transition hover:border-slate-700"
+                className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl transition hover:border-slate-300 dark:hover:border-slate-700"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -367,46 +367,46 @@ export default function OrgMatchedJdsPage() {
                         <span>{item.verdict}</span>
                       </span>
 
-                      <span className="text-xs font-bold text-slate-300">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                         Score: {item.matchScore}%
                       </span>
 
                       {/* Prominent Extracted Company Badge */}
-                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/25 px-2.5 py-0.5 text-xs font-semibold text-indigo-300">
-                        <Building2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/25 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                        <Building2 className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                         <span>{displayCompany}</span>
                       </span>
                     </div>
 
                     {/* Prominent Extracted Role Heading */}
                     <div className="flex items-center gap-2 pt-1.5">
-                      <Briefcase className="h-4 w-4 text-emerald-400 shrink-0" />
-                      <h3 className="text-base font-bold text-white tracking-tight">
+                      <Briefcase className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                         {displayRole}
                       </h3>
                     </div>
 
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                       <span className="flex items-center gap-1">
-                        <User className="h-3 w-3 text-slate-500" />
-                        Candidate: <strong className="text-slate-200">{item.candidateName || 'Bench Candidate'}</strong>
+                        <User className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                        Candidate: <strong className="text-slate-800 dark:text-slate-200">{item.candidateName || 'Bench Candidate'}</strong>
                       </span>
                       <span>•</span>
                       <span className="flex items-center gap-1">
-                        <Users className="h-3 w-3 text-slate-500" />
-                        Recruiter: <strong className="text-indigo-300">{item.recruiterName || 'Agency Recruiter'}</strong>
+                        <Users className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                        Recruiter: <strong className="text-indigo-700 dark:text-indigo-300">{item.recruiterName || 'Agency Recruiter'}</strong>
                       </span>
                       <span>•</span>
-                      <span>Company: <strong className="text-indigo-200">{displayCompany}</strong></span>
+                      <span>Company: <strong className="text-indigo-700 dark:text-indigo-200">{displayCompany}</strong></span>
                     </div>
 
-                    <p className="mt-2 text-xs text-slate-300 leading-relaxed max-w-3xl line-clamp-3">
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-3xl line-clamp-3">
                       {item.matchReasoning}
                     </p>
                   </div>
 
                   <div className="flex flex-col sm:items-end gap-2 shrink-0">
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       {formatDate(item.appliedAt)}
                     </span>
@@ -417,18 +417,18 @@ export default function OrgMatchedJdsPage() {
                           href={item.jobUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-white transition"
+                          className="flex items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
                         >
                           <ExternalLink className="h-3 w-3" />
-                          <span>Link</span>
+                          <span>Posting</span>
                         </a>
                       )}
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                        className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-300 hover:bg-slate-700 transition"
+                        className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
                       >
-                        <FileText className="h-3.5 w-3.5 text-emerald-400" />
-                        <span>{isExpanded ? 'Hide Raw JD' : 'View Raw JD'}</span>
+                        <FileText className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>{isExpanded ? 'Hide Details' : 'View Details'}</span>
                         {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                       </button>
                     </div>
@@ -440,22 +440,22 @@ export default function OrgMatchedJdsPage() {
                   <div className="mt-4 border-t border-slate-800/80 pt-4">
                     <div className="mb-2 flex items-center justify-between">
                       <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                        Raw Job Description Text Scraped from Extension
+                        Job Description
                       </label>
                       <button
                         onClick={() => handleCopyText(item.rawJdText, item.id, 'jd')}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition"
-                        title="Copy raw job description text"
+                        title="Copy job description text"
                       >
                         {copiedJdId === item.id ? (
                           <>
                             <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            <span className="font-semibold">Copied JD!</span>
+                            <span className="font-semibold">Copied!</span>
                           </>
                         ) : (
                           <>
                             <Copy className="h-3.5 w-3.5" />
-                            <span>Copy JD</span>
+                            <span>Copy</span>
                           </>
                         )}
                       </button>

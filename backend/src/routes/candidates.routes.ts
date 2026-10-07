@@ -38,8 +38,6 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
 
       // Pagination support
       const query = request.query as { limit?: string; offset?: string };
-      const limit = Math.min(Math.max(parseInt(query.limit || '50', 10) || 50, 1), 200);
-      const offset = Math.max(parseInt(query.offset || '0', 10) || 0, 0);
 
       const conditions = [
         eq(candidates.organizationId, user.organizationId!),
@@ -51,7 +49,7 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
         conditions.push(eq(candidates.createdByRecruiterId, user.id));
       }
 
-      const list = await db
+      const baseQuery = db
         .select({
           id: candidates.id,
           fullName: candidates.fullName,
@@ -67,9 +65,26 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
         .from(candidates)
         .leftJoin(users, eq(candidates.createdByRecruiterId, users.id))
         .where(and(...conditions))
-        .orderBy(desc(candidates.createdAt))
-        .limit(limit)
-        .offset(offset);
+        .orderBy(desc(candidates.createdAt));
+
+      const hasExplicitLimit = query.limit !== undefined && query.limit !== 'all' && query.limit !== '0' && query.limit !== 'none';
+      const hasExplicitOffset = query.offset !== undefined && parseInt(query.offset, 10) > 0;
+
+      let list;
+      if (hasExplicitLimit || hasExplicitOffset) {
+        let dynamicQuery = baseQuery.$dynamic();
+        if (hasExplicitLimit) {
+          const limitNum = Math.max(parseInt(query.limit!, 10) || 50, 1);
+          dynamicQuery = dynamicQuery.limit(limitNum);
+        }
+        if (hasExplicitOffset) {
+          const offsetNum = Math.max(parseInt(query.offset!, 10) || 0, 0);
+          dynamicQuery = dynamicQuery.offset(offsetNum);
+        }
+        list = await dynamicQuery;
+      } else {
+        list = await baseQuery;
+      }
 
       return reply.send(list);
     }

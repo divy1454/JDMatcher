@@ -40,6 +40,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
+DO $$ BEGIN
+  CREATE TYPE "unlock_request_status" AS ENUM('pending', 'approved', 'rejected');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "approval_tier" AS ENUM('org_admin', 'super_admin');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
 CREATE TABLE IF NOT EXISTS "organizations" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "name" varchar(255) NOT NULL,
@@ -155,6 +165,48 @@ CREATE TABLE IF NOT EXISTS "invoices" (
   "updated_at" timestamp with time zone NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS "resume_analyses" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "organization_id" uuid NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
+  "recruiter_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "candidate_id" uuid REFERENCES "candidates"("id") ON DELETE SET NULL,
+  "candidate_name" varchar(255) NOT NULL,
+  "candidate_title" varchar(255),
+  "raw_resume_text" text NOT NULL,
+  "total_years_experience" varchar(255),
+  "core_specialization" text,
+  "target_seniority" varchar(255),
+  "seniority_rationale" text,
+  "industries_and_domains" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "role_tiers" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "honest_notes" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "primary_fit_companies" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "secondary_fit_companies" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "workflow_notes" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "full_markdown" text,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+  "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "device_unlock_requests" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "organization_id" uuid NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
+  "recruiter_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "requested_device_id" varchar(255) NOT NULL,
+  "current_device_id" varchar(255),
+  "reason" text,
+  "approval_tier" "approval_tier" NOT NULL DEFAULT 'org_admin',
+  "status" "unlock_request_status" NOT NULL DEFAULT 'pending',
+  "reviewed_by_user_id" uuid REFERENCES "users"("id") ON DELETE SET NULL,
+  "reviewed_at" timestamp with time zone,
+  "rejection_reason" text,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now(),
+  "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+);
+
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "device_monthly_switch_count" integer NOT NULL DEFAULT 0;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "device_switch_count_reset_at" timestamp with time zone;
+
 CREATE INDEX IF NOT EXISTS "candidates_org_idx" ON "candidates"("organization_id");
 CREATE INDEX IF NOT EXISTS "candidates_recruiter_idx" ON "candidates"("created_by_recruiter_id");
 CREATE INDEX IF NOT EXISTS "matched_jds_org_idx" ON "matched_jds"("organization_id");
@@ -166,6 +218,12 @@ CREATE INDEX IF NOT EXISTS "users_device_idx" ON "users"("device_id");
 CREATE INDEX IF NOT EXISTS "invoices_org_idx" ON "invoices"("organization_id");
 CREATE INDEX IF NOT EXISTS "invoices_month_idx" ON "invoices"("billing_month");
 CREATE INDEX IF NOT EXISTS "invoices_status_idx" ON "invoices"("status");
+CREATE INDEX IF NOT EXISTS "resume_analyses_org_idx" ON "resume_analyses"("organization_id");
+CREATE INDEX IF NOT EXISTS "resume_analyses_recruiter_idx" ON "resume_analyses"("recruiter_id");
+CREATE INDEX IF NOT EXISTS "resume_analyses_candidate_idx" ON "resume_analyses"("candidate_id");
+CREATE INDEX IF NOT EXISTS "unlock_req_org_idx" ON "device_unlock_requests"("organization_id");
+CREATE INDEX IF NOT EXISTS "unlock_req_recruiter_idx" ON "device_unlock_requests"("recruiter_id");
+CREATE INDEX IF NOT EXISTS "unlock_req_status_idx" ON "device_unlock_requests"("status");
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -192,6 +250,19 @@ END $$;
 
 DO $$ BEGIN
   CREATE TRIGGER update_invoices_updated_at BEFORE UPDATE ON invoices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER update_resume_analyses_updated_at BEFORE UPDATE ON resume_analyses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+ALTER TABLE "token_consumption_ledger" ADD COLUMN IF NOT EXISTS "action_type" varchar(50) NOT NULL DEFAULT 'eval';
+CREATE INDEX IF NOT EXISTS "ledger_action_type_idx" ON "token_consumption_ledger" ("action_type");
+
+DO $$ BEGIN
+  CREATE TRIGGER update_unlock_requests_updated_at BEFORE UPDATE ON device_unlock_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
   `;

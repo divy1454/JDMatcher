@@ -1,3 +1,5 @@
+import { generateHardwareFingerprint } from './fingerprint';
+
 const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com') ? 'https://jdmatcher-be.onrender.com/api' : 'http://localhost:4000/api');
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
@@ -27,6 +29,16 @@ export async function apiRequest<T = any>(
 
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  if (typeof window !== 'undefined' && !headers.has('x-device-id')) {
+    let deviceId = localStorage.getItem('deviceId') || localStorage.getItem('jdmatcher_hw_fingerprint');
+    if (!deviceId || !deviceId.startsWith('mach_')) {
+      deviceId = await generateHardwareFingerprint();
+    }
+    if (deviceId) {
+      headers.set('x-device-id', deviceId);
+    }
   }
 
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;

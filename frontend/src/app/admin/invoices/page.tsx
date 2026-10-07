@@ -310,10 +310,10 @@ export default function AdminInvoicesPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
             <Receipt className="h-6 w-6 text-indigo-400" />
-            <span>Agency Invoicing & Billing Control</span>
+            <span>Invoices & Billing</span>
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Issue monthly business-level bills, manage UPI payment QR codes, and control agency invoice download access.
+            Manage monthly billing statements, invoice status, and downloads.
           </p>
         </div>
 
@@ -322,7 +322,7 @@ export default function AdminInvoicesPage() {
           className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition active:scale-95 w-fit"
         >
           <Plus className="h-4 w-4" />
-          <span>Generate Monthly Bill</span>
+          <span>Generate Bill</span>
         </button>
       </div>
 
@@ -334,25 +334,21 @@ export default function AdminInvoicesPage() {
             <span className="text-2xl font-black text-white font-mono">${totalBilledUsd.toFixed(2)}</span>
             <span className="text-xs font-semibold text-emerald-400 font-mono">(₹{totalBilledInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })})</span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">Across all agencies and months</p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
           <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Invoices Issued</p>
           <p className="mt-2 text-2xl font-black text-white font-mono">{invoices.length}</p>
-          <p className="mt-1 text-[11px] text-slate-500">Monthly billing statements</p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
           <p className="text-xs uppercase font-bold tracking-wider text-emerald-400">Paid In Full</p>
           <p className="mt-2 text-2xl font-black text-emerald-400 font-mono">{paidCount}</p>
-          <p className="mt-1 text-[11px] text-slate-500">Settled via UPI / Wire</p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
           <p className="text-xs uppercase font-bold tracking-wider text-amber-400">Pending Settlement</p>
           <p className="mt-2 text-2xl font-black text-amber-400 font-mono">{pendingCount}</p>
-          <p className="mt-1 text-[11px] text-slate-500">Payment due from agencies</p>
         </div>
       </div>
 
@@ -452,7 +448,7 @@ export default function AdminInvoicesPage() {
                     {/* Invoice & Month */}
                     <td className="py-4">
                       <div className="font-mono text-xs font-bold text-indigo-300">{inv.invoiceNumber}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Month: <span className="font-semibold text-white">{inv.billingMonth}</span></div>
+                      <div className="text-xs text-slate-400 mt-0.5">{inv.billingMonth}</div>
                     </td>
 
                     {/* Usage */}
@@ -483,8 +479,8 @@ export default function AdminInvoicesPage() {
                         disabled={actionLoadingId === inv.id}
                         className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${
                           inv.isGenerated
-                            ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
-                            : 'bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                            ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 shadow-sm'
+                            : 'bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-200 shadow-sm'
                         }`}
                         title={
                           inv.isGenerated
@@ -494,12 +490,12 @@ export default function AdminInvoicesPage() {
                       >
                         {inv.isGenerated ? (
                           <>
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                             <span>Download Enabled</span>
                           </>
                         ) : (
                           <>
-                            <Clock className="h-3.5 w-3.5 text-slate-400" />
+                            <Clock className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
                             <span>Download Hidden</span>
                           </>
                         )}
@@ -514,8 +510,8 @@ export default function AdminInvoicesPage() {
                         disabled={actionLoadingId === inv.id}
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold transition active:scale-95 ${
                           isPaid
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
-                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
+                            ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 hover:bg-emerald-100 dark:hover:bg-emerald-500/30 shadow-sm'
+                            : 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 hover:bg-amber-100 dark:hover:bg-amber-500/30 shadow-sm'
                         }`}
                         title="Click to toggle Paid / Pending"
                       >
@@ -529,10 +525,10 @@ export default function AdminInvoicesPage() {
                         type="button"
                         onClick={() => handlePreviewInvoice(inv.id)}
                         disabled={actionLoadingId === inv.id}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-700 hover:border-slate-600 transition"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 dark:border-slate-700 bg-indigo-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-indigo-700 dark:text-white shadow hover:bg-indigo-100 dark:hover:bg-slate-700 hover:border-indigo-300 dark:hover:border-slate-600 transition"
                       >
-                        <Eye className="h-3.5 w-3.5 text-indigo-400" />
-                        <span>View Invoice & QR</span>
+                        <Eye className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>View Invoice</span>
                       </button>
                     </td>
                   </tr>
@@ -558,7 +554,7 @@ export default function AdminInvoicesPage() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2">
                 <Receipt className="h-5 w-5 text-indigo-400" />
-                <h3 className="text-base font-bold text-white">Generate Monthly Bill</h3>
+                <h3 className="text-base font-bold text-white">Generate Bill</h3>
               </div>
               <button
                 onClick={() => setIsGenerateModalOpen(false)}

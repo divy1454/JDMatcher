@@ -4,9 +4,9 @@
 
 @layer base {
   :root {
-    --background: 220 20% 98%;
-    --foreground: 224 71.4% 4.1%;
-    --card: 0 0% 100%;
+    --background: 220 20% 98%; /* #f8fafc */
+    --foreground: 224 71.4% 4.1%; /* #020617 */
+    --card: 0 0% 100%; /* #ffffff */
     --card-foreground: 224 71.4% 4.1%;
     --popover: 0 0% 100%;
     --popover-foreground: 224 71.4% 4.1%;
@@ -20,16 +20,16 @@
     --accent-foreground: 220.9 39.3% 11%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 220 13% 91%;
+    --border: 220 13% 91%; /* #e2e8f0 */
     --input: 220 13% 91%;
     --ring: 243 75% 59%;
     --radius: 0.75rem;
   }
 
   .dark {
-    --background: 224 71.4% 4.1%;
-    --foreground: 210 20% 98%;
-    --card: 224 71.4% 6%;
+    --background: 224 71.4% 4.1%; /* #020617 */
+    --foreground: 210 20% 98%; /* #f8fafc */
+    --card: 224 71.4% 6%; /* #0f172a */
     --card-foreground: 210 20% 98%;
     --popover: 224 71.4% 6%;
     --popover-foreground: 210 20% 98%;
@@ -43,7 +43,7 @@
     --accent-foreground: 210 20% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 20% 98%;
-    --border: 215 27.9% 16.9%;
+    --border: 215 27.9% 16.9%; /* #1e293b */
     --input: 215 27.9% 16.9%;
     --ring: 243 75% 59%;
   }
@@ -56,6 +56,221 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* =========================================================================
+   LIGHT THEME ADAPTIVE SYSTEM
+   Ensures seamless, high-contrast, beautiful UI when dark mode is toggled off
+   ========================================================================= */
+
+html:not(.dark) {
+  /* Canvas and Primary Viewport Backgrounds */
+  .bg-slate-950 {
+    background-color: #f8fafc !important;
+  }
+  
+  /* Primary Card and Section Surfaces */
+  .bg-slate-900\/60,
+  .bg-slate-900\/80,
+  .bg-slate-900\/90,
+  .bg-slate-900\/40,
+  .bg-slate-900 {
+    background-color: #ffffff !important;
+  }
+
+  /* Inner Fills, Filter Bars, Secondary Containers, and Form Inputs */
+  .bg-slate-950\/60,
+  .bg-slate-950\/70,
+  .bg-slate-950\/80,
+  .bg-slate-950\/40,
+  .bg-slate-800,
+  .bg-slate-800\/80,
+  .bg-slate-800\/60,
+  .bg-slate-800\/50,
+  .bg-slate-800\/30 {
+    background-color: #f1f5f9 !important;
+  }
+
+  .bg-slate-700 {
+    background-color: #e2e8f0 !important;
+  }
+
+  /* Dividers and Borders */
+  .border-slate-800,
+  .border-slate-800\/80,
+  .border-slate-800\/60 {
+    border-color: #e2e8f0 !important;
+  }
+
+  .border-slate-700,
+  .border-slate-700\/80 {
+    border-color: #cbd5e1 !important;
+  }
+
+  /* Typography Contrast in Light Mode */
+  h1.text-white,
+  h2.text-white,
+  h3.text-white,
+  h4.text-white,
+  p.text-white,
+  th.text-white,
+  td.text-white,
+  b.text-white,
+  div.text-white:not([class*="bg-indigo"]):not([class*="bg-emerald"]):not([class*="bg-violet"]):not([class*="bg-red"]):not([class*="bg-rose"]):not([class*="bg-blue"]):not([class*="bg-amber"]),
+  span.text-white:not([class*="bg-indigo"]):not([class*="bg-emerald"]):not([class*="bg-violet"]):not([class*="bg-red"]):not([class*="bg-rose"]):not([class*="bg-blue"]):not([class*="bg-amber"]) {
+    color: #0f172a !important;
+  }
+
+  .text-slate-100,
+  .text-slate-200 {
+    color: #1e293b !important;
+  }
+
+  .text-slate-300 {
+    color: #334155 !important;
+  }
+
+  .text-slate-400 {
+    color: #64748b !important;
+  }
+
+  .text-slate-500 {
+    color: #94a3b8 !important;
+  }
+
+  /* Universal Form Input and Textarea Text Color in Light Mode */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+  textarea {
+    color: #0f172a !important;
+  }
+
+  input::placeholder,
+  textarea::placeholder,
+  input.placeholder-slate-500::placeholder,
+  textarea.placeholder-slate-500::placeholder {
+    color: #94a3b8 !important;
+  }
+
+  /* Universal Sidebar and Navigation Hover Override in Light Mode */
+  aside {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  .hover\:bg-slate-900:hover {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+  }
+
+  .hover\:text-slate-200:hover {
+    color: #0f172a !important;
+  }
+
+  /* Neutralize Dark Gradients in Light Mode */
+  .from-slate-900\/90,
+  .to-slate-950\/80,
+  [class*="from-slate-900"],
+  [class*="to-slate-950"] {
+    --tw-gradient-from: #ffffff !important;
+    --tw-gradient-to: #ffffff !important;
+    --tw-gradient-stops: #ffffff, #ffffff !important;
+  }
+
+  /* Keep crisp white text on colored solid buttons & active tabs */
+  button[class*="bg-indigo-600"],
+  button[class*="bg-emerald-600"],
+  button[class*="bg-emerald-500"],
+  button[class*="bg-violet-600"],
+  button[class*="bg-red-600"],
+  button[class*="bg-blue-600"],
+  a[class*="bg-indigo-600"],
+  a[class*="bg-emerald-600"],
+  a[class*="bg-violet-600"] {
+    color: #ffffff !important;
+  }
+
+  button[class*="bg-indigo-600"] *,
+  button[class*="bg-emerald-600"] *,
+  button[class*="bg-emerald-500"] *,
+  button[class*="bg-violet-600"] *,
+  a[class*="bg-indigo-600"] *,
+  a[class*="bg-emerald-600"] *,
+  a[class*="bg-violet-600"] * {
+    color: #ffffff !important;
+  }
+
+  /* SuperAdmin Portal Accents (Indigo) */
+  .bg-indigo-950\/30 {
+    background-color: #eef2ff !important;
+    border-color: #c7d2fe !important;
+  }
+  .text-indigo-400,
+  .text-indigo-300 {
+    color: #4338ca !important;
+  }
+  .border-indigo-500\/20,
+  .border-indigo-500\/25,
+  .border-indigo-500\/30 {
+    border-color: #c7d2fe !important;
+  }
+
+  /* OrgAdmin Portal Accents (Violet) */
+  .bg-violet-950\/20,
+  .bg-violet-950\/40 {
+    background-color: #f5f3ff !important;
+    border-color: #ddd6fe !important;
+  }
+  .text-violet-400,
+  .text-violet-300 {
+    color: #6d28d9 !important;
+  }
+  .border-violet-500\/20,
+  .border-violet-500\/30 {
+    border-color: #ddd6fe !important;
+  }
+
+  /* Recruiter Portal Accents (Emerald) */
+  .text-emerald-400,
+  .text-emerald-300 {
+    color: #047857 !important;
+  }
+  .bg-emerald-500\/10,
+  .bg-emerald-500\/5 {
+    background-color: #ecfdf5 !important;
+  }
+  .border-emerald-500\/20,
+  .border-emerald-500\/30 {
+    border-color: #a7f3d0 !important;
+  }
+
+  /* Warning / Caution Alerts */
+  .text-amber-400,
+  .text-amber-300 {
+    color: #b45309 !important;
+  }
+  .bg-amber-500\/10,
+  .bg-amber-500\/5 {
+    background-color: #fffbeb !important;
+  }
+  .border-amber-500\/20,
+  .border-amber-500\/30 {
+    border-color: #fde68a !important;
+  }
+
+  /* Danger / Destructive Alerts */
+  .text-red-400,
+  .text-red-300 {
+    color: #b91c1c !important;
+  }
+  .bg-red-500\/10,
+  .bg-red-500\/5 {
+    background-color: #fef2f2 !important;
+  }
+  .border-red-500\/20,
+  .border-red-500\/30 {
+    border-color: #fecaca !important;
   }
 }
 
@@ -75,33 +290,58 @@
   background: rgba(100, 116, 139, 0.6);
 }
 
-/* Premium Dropdown & Select UI styling */
-select {
+/* Dropdown & Select UI styling - Dark (Default) */
+.dark select {
   background-color: #0b0f19;
   color: #f1f5f9;
   font-family: inherit;
   cursor: pointer;
 }
-
-select option {
+.dark select option {
   background-color: #0b0f19 !important;
   color: #f1f5f9 !important;
   padding: 10px 14px;
 }
-
-select option:checked {
+.dark select option:checked {
   background-color: #4f46e5 !important;
   color: #ffffff !important;
 }
-
-select option:hover {
+.dark select option:hover {
   background-color: #1e293b !important;
   color: #ffffff !important;
 }
-
-select optgroup {
+.dark select optgroup {
   background-color: #0f172a !important;
   color: #94a3b8 !important;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+/* Dropdown & Select UI styling - Light */
+html:not(.dark) select {
+  background-color: #ffffff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+  font-family: inherit;
+  cursor: pointer;
+}
+html:not(.dark) select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  padding: 10px 14px;
+}
+html:not(.dark) select option:checked {
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+html:not(.dark) select option:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+html:not(.dark) select optgroup {
+  background-color: #f8fafc !important;
+  color: #64748b !important;
   font-weight: 700;
   font-size: 0.75rem;
   letter-spacing: 0.05em;
@@ -118,6 +358,12 @@ select optgroup {
   backdrop-filter: blur(12px);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+html:not(.dark) .dropdown-wrapper {
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
 }
 
 .dropdown-wrapper:hover {
@@ -141,6 +387,10 @@ select optgroup {
   outline: none;
   cursor: pointer;
   font-weight: 500;
+}
+
+html:not(.dark) .dropdown-select {
+  color: #0f172a;
 }
 
 .dropdown-icon-left {
@@ -167,7 +417,6 @@ select optgroup {
   transform: translateY(1px);
 }
 
-
 @media print {
   @page {
     size: A4;
@@ -189,4 +438,3 @@ select optgroup {
     width: 100% !important;
   }
 }
-

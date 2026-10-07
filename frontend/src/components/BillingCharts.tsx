@@ -16,6 +16,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { Activity, PieChart as PieChartIcon, BarChart3 } from 'lucide-react';
+import { useTheme } from '@/lib/themeContext';
 
 interface DailyStat {
   date: string;
@@ -50,6 +51,9 @@ const VERDICT_COLORS = ['#10B981', '#EF4444', '#6B7280'];
 
 // Custom High-Contrast Tooltip for Pie Chart
 const CustomPieTooltip = ({ active, payload }: any) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   if (active && payload && payload.length) {
     const item = payload[0];
     const isApply = item.name?.toLowerCase().includes('apply');
@@ -58,16 +62,22 @@ const CustomPieTooltip = ({ active, payload }: any) => {
     const count = Number(item.value) || 0;
 
     return (
-      <div className="rounded-xl border border-slate-700/80 bg-slate-950/95 px-3.5 py-2.5 shadow-2xl backdrop-blur-xl">
+      <div
+        className={`rounded-xl border px-3.5 py-2.5 shadow-2xl backdrop-blur-xl ${
+          isDark
+            ? 'border-slate-700/80 bg-slate-950/95 text-white'
+            : 'border-slate-200 bg-white/95 text-slate-900 shadow-slate-200'
+        }`}
+      >
         <div className="flex items-center gap-2">
           <span
             className="h-2.5 w-2.5 rounded-full shrink-0 shadow-sm"
             style={{ backgroundColor: color }}
           />
-          <span className="text-xs font-bold text-white tracking-tight">{title}</span>
+          <span className={`text-xs font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{title}</span>
         </div>
         <div className="mt-1.5 flex items-baseline gap-1.5">
-          <span className="text-base font-extrabold text-white font-mono">{count}</span>
+          <span className={`text-base font-extrabold font-mono ${isDark ? 'text-white' : 'text-slate-900'}`}>{count}</span>
           <span className="text-xs font-medium text-slate-400">
             {count === 1 ? 'evaluation' : 'evaluations'}
           </span>
@@ -84,6 +94,24 @@ export default function BillingCharts({
   verdictStats,
   totalEvaluations,
 }: BillingChartsProps) {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
+  const gridStroke = isDark ? '#1E293B' : '#E2E8F0';
+  const axisStroke = '#64748B';
+  const tooltipStyle = {
+    backgroundColor: isDark ? '#020617' : '#FFFFFF',
+    borderColor: isDark ? '#334155' : '#E2E8F0',
+    borderRadius: '0.75rem',
+    fontSize: '12px',
+    color: isDark ? '#F8FAFC' : '#0F172A',
+    boxShadow: isDark
+      ? '0 20px 25px -5px rgb(0 0 0 / 0.5)'
+      : '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+  };
+  const tooltipItemStyle = { color: isDark ? '#F8FAFC' : '#0F172A' };
+  const tooltipLabelStyle = { color: isDark ? '#FFFFFF' : '#0F172A', fontWeight: 'bold' };
+
   const verdictChartData = verdictStats
     ? [
         { name: 'Apply (Match)', value: verdictStats.applyCount, color: '#10B981' },
@@ -124,25 +152,18 @@ export default function BillingCharts({
                       <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                   <XAxis
                     dataKey="date"
-                    stroke="#64748B"
+                    stroke={axisStroke}
                     fontSize={11}
                     tickFormatter={(val) => (typeof val === 'string' ? val.slice(5) : val)}
                   />
-                  <YAxis stroke="#64748B" fontSize={11} allowDecimals={false} />
+                  <YAxis stroke={axisStroke} fontSize={11} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#020617',
-                      borderColor: '#334155',
-                      borderRadius: '0.75rem',
-                      fontSize: '12px',
-                      color: '#F8FAFC',
-                      boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.5)',
-                    }}
-                    itemStyle={{ color: '#F8FAFC' }}
-                    labelStyle={{ color: '#FFFFFF', fontWeight: 'bold' }}
+                    contentStyle={tooltipStyle}
+                    itemStyle={tooltipItemStyle}
+                    labelStyle={tooltipLabelStyle}
                   />
                   <Area
                     type="monotone"
@@ -245,20 +266,13 @@ export default function BillingCharts({
                 data={recruiterBreakdown}
                 margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
-                <XAxis dataKey="recruiterName" stroke="#64748B" fontSize={11} />
-                <YAxis stroke="#64748B" fontSize={11} allowDecimals={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                <XAxis dataKey="recruiterName" stroke={axisStroke} fontSize={11} />
+                <YAxis stroke={axisStroke} fontSize={11} allowDecimals={false} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#020617',
-                    borderColor: '#334155',
-                    borderRadius: '0.75rem',
-                    fontSize: '12px',
-                    color: '#F8FAFC',
-                    boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.5)',
-                  }}
-                  itemStyle={{ color: '#F8FAFC' }}
-                  labelStyle={{ color: '#FFFFFF', fontWeight: 'bold' }}
+                  contentStyle={tooltipStyle}
+                  itemStyle={tooltipItemStyle}
+                  labelStyle={tooltipLabelStyle}
                   formatter={(val: any) => [`${val} evaluations`, 'Evaluations']}
                 />
                 <Bar

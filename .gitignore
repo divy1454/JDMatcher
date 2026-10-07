@@ -18,6 +18,7 @@ extension/dist/
 *.swp
 *.swo
 .agents/
+.agent/
 
 # OS files
 .DS_Store

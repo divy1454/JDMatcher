@@ -11,6 +11,10 @@ export interface User {
   role: 'super_admin' | 'org_admin' | 'recruiter';
   organizationId: string | null;
   deviceId?: string | null;
+  deviceLastLockedAt?: string | null;
+  deviceSwitchAllowedAfter?: string | null;
+  deviceMonthlySwitchCount?: number;
+  createdAt?: string;
 }
 
 export interface Organization {
@@ -19,6 +23,9 @@ export interface Organization {
   slug: string;
   totalBilledAmount: string;
   securityDepositLimit: string;
+  customEvalPrompt?: string | null;
+  teamCount?: number;
+  createdAt?: string;
 }
 
 interface AuthContextType {
@@ -29,6 +36,7 @@ interface AuthContextType {
   login: (token: string, user: User, org?: Organization | null) => void;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  updateUserData: (newUser: User, newOrg?: Organization | null, newToken?: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -52,6 +60,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
       setUser(data.user);
       setOrganization(data.organization);
       setToken(storedToken);
+
+      if (data.user?.deviceId && typeof window !== 'undefined') {
+        localStorage.setItem('deviceId', data.user.deviceId);
+      }
 
       // Broadcast auth sync for Chrome extension
       if (typeof window !== 'undefined' && data.user) {
@@ -89,6 +101,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
     setUser(newUser);
     setOrganization(newOrg || null);
 
+    if (newUser.deviceId && typeof window !== 'undefined') {
+      localStorage.setItem('deviceId', newUser.deviceId);
+    }
+
     // Set cookie and broadcast auth sync for Chrome extension
     if (typeof window !== 'undefined') {
       document.cookie = `token=${newToken}; path=/; max-age=604800; SameSite=Lax`;
@@ -123,6 +139,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
     router.push('/login');
   };
 
+  const updateUserData = (newUser: User, newOrg?: Organization | null, newToken?: string) => {
+    setUser(newUser);
+    if (newOrg !== undefined) {
+      setOrganization(newOrg);
+    }
+    if (newToken) {
+      localStorage.setItem('token', newToken);
+      setToken(newToken);
+      if (typeof window !== 'undefined') {
+        document.cookie = `token=${newToken}; path=/; max-age=604800; SameSite=Lax`;
+        window.postMessage({
+          type: 'JDMATCHER_AUTH_SYNC',
+          token: newToken,
+          user: newUser,
+          organization: newOrg || organization || null,
+          apiUrl: process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com') ? 'https://jdmatcher-be.onrender.com/api' : 'http://localhost:4000/api'),
+          frontendUrl: window.location.origin,
+        }, '*');
+      }
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -133,6 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): any {
         login,
         logout,
         refreshUser,
+        updateUserData,
       }}
     >
       {children}

@@ -18,6 +18,7 @@ import {
   Check,
   Percent,
   ChevronDown,
+  FileText,
 } from 'lucide-react';
 import { CustomDropdown } from '@/components/ui/CustomDropdown';
 
@@ -30,6 +31,7 @@ interface OrganizationItem {
   profitMultiplier: string;
   isActive: boolean;
   recruiterCount: number;
+  resumeAnalysisCount?: number;
   createdAt: string;
 }
 
@@ -46,7 +48,15 @@ export default function OrganizationsPage() {
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Form State for new Agency Provisioning
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    name: string;
+    slug: string;
+    securityDepositLimit: number | string;
+    profitMultiplier: number | string;
+    adminEmail: string;
+    adminFullName: string;
+    adminPassword: string;
+  }>({
     name: '',
     slug: '',
     securityDepositLimit: 500,
@@ -57,8 +67,8 @@ export default function OrganizationsPage() {
   });
 
   // Edit Multiplier & Billing Modal State
-  const [editMultiplier, setEditMultiplier] = useState<number>(4.0);
-  const [editDepositLimit, setEditDepositLimit] = useState<number>(500);
+  const [editMultiplier, setEditMultiplier] = useState<number | string>(4.0);
+  const [editDepositLimit, setEditDepositLimit] = useState<number | string>(500);
   const [editIsActive, setEditIsActive] = useState<boolean>(true);
   const [editError, setEditError] = useState<string>('');
 
@@ -87,12 +97,28 @@ export default function OrganizationsPage() {
 
   const handleCreateOrg = async (e: React.FormEvent) => {
     e.preventDefault();
+    const parsedDeposit = Number(formData.securityDepositLimit);
+    const parsedMultiplier = Number(formData.profitMultiplier);
+
+    if (isNaN(parsedDeposit) || parsedDeposit <= 0) {
+      showNotification('error', 'Please enter a valid positive security deposit credit limit');
+      return;
+    }
+    if (isNaN(parsedMultiplier) || parsedMultiplier < 1.0) {
+      showNotification('error', 'Profit multiplier must be at least 1.0x');
+      return;
+    }
+
     setActionLoading(true);
 
     try {
       await apiRequest('/orgs', {
         method: 'POST',
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          securityDepositLimit: parsedDeposit,
+          profitMultiplier: parsedMultiplier,
+        }),
       });
 
       setIsModalOpen(false);
@@ -144,11 +170,14 @@ export default function OrganizationsPage() {
     e.preventDefault();
     if (!editingOrg) return;
 
-    if (editMultiplier < 1.0) {
+    const parsedDeposit = Number(editDepositLimit);
+    const parsedMultiplier = Number(editMultiplier);
+
+    if (isNaN(parsedMultiplier) || parsedMultiplier < 1.0) {
       setEditError('Profit multiplier must be at least 1.0x');
       return;
     }
-    if (editDepositLimit <= 0) {
+    if (isNaN(parsedDeposit) || parsedDeposit <= 0) {
       setEditError('Security deposit limit must be greater than $0');
       return;
     }
@@ -160,8 +189,8 @@ export default function OrganizationsPage() {
       const updated = await apiRequest(`/orgs/${editingOrg.id}/billing-settings`, {
         method: 'PATCH',
         body: JSON.stringify({
-          profitMultiplier: editMultiplier,
-          securityDepositLimit: editDepositLimit,
+          profitMultiplier: parsedMultiplier,
+          securityDepositLimit: parsedDeposit,
           isActive: editIsActive,
         }),
       });
@@ -170,11 +199,11 @@ export default function OrganizationsPage() {
         prev.map((o) =>
           o.id === editingOrg.id
             ? {
-                ...o,
-                profitMultiplier: updated.profitMultiplier,
-                securityDepositLimit: updated.securityDepositLimit,
-                isActive: updated.isActive,
-              }
+              ...o,
+              profitMultiplier: updated.profitMultiplier,
+              securityDepositLimit: updated.securityDepositLimit,
+              isActive: updated.isActive,
+            }
             : o
         )
       );
@@ -203,11 +232,10 @@ export default function OrganizationsPage() {
       {/* Toast Notification Banner */}
       {notification && (
         <div
-          className={`flex items-center justify-between rounded-xl border p-4 text-sm font-medium backdrop-blur-xl transition ${
-            notification.type === 'success'
+          className={`flex items-center justify-between rounded-xl border p-4 text-sm font-medium backdrop-blur-xl transition ${notification.type === 'success'
               ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
               : 'border-red-500/30 bg-red-500/10 text-red-300'
-          }`}
+            }`}
         >
           <div className="flex items-center gap-2">
             {notification.type === 'success' ? (
@@ -229,9 +257,9 @@ export default function OrganizationsPage() {
       {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Agency Organizations</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Provision IT bench sales agencies, manage offline security deposit limits, and edit profit multipliers at any time.
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Agency Organizations</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Manage agencies, security deposit limits, and billing multipliers.
           </p>
         </div>
 
@@ -245,32 +273,33 @@ export default function OrganizationsPage() {
       </div>
 
       {/* Search Bar */}
-      <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 backdrop-blur">
-        <Search className="h-4 w-4 text-slate-500" />
+      <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2 shadow-xs backdrop-blur">
+        <Search className="h-4 w-4 text-slate-400 dark:text-slate-500" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search agency by name or slug..."
-          className="ml-2 w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none"
+          className="ml-2 w-full bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none"
         />
       </div>
 
       {/* Organizations Table */}
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-xl">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-sm dark:shadow-xl backdrop-blur-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-800 bg-slate-950/40 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/40 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
               <tr>
                 <th className="px-6 py-4">Agency Name</th>
                 <th className="px-6 py-4">Security Deposit Status</th>
                 <th className="px-6 py-4">Multiplier (Editable)</th>
                 <th className="px-6 py-4">Seats</th>
+                <th className="px-6 py-4">Resume Analyses</th>
                 <th className="px-6 py-4">Created</th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 text-slate-300">
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 text-slate-700 dark:text-slate-300">
               {filtered.map((org) => {
                 const limit = parseFloat(org.securityDepositLimit);
                 const billed = parseFloat(org.totalBilledAmount);
@@ -279,15 +308,15 @@ export default function OrganizationsPage() {
                 const isWarning = percentUsed >= 80 && !isLocked;
 
                 return (
-                  <tr key={org.id} className="hover:bg-slate-800/30 transition">
+                  <tr key={org.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 font-bold">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold">
                           {org.name.slice(0, 2).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-semibold text-white">{org.name}</p>
-                          <p className="text-xs text-slate-500">slug: {org.slug}</p>
+                          <p className="font-semibold text-slate-900 dark:text-white">{org.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{org.slug}</p>
                         </div>
                       </div>
                     </td>
@@ -296,39 +325,37 @@ export default function OrganizationsPage() {
                     <td className="px-6 py-4">
                       <div className="w-56 space-y-1.5">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-semibold text-white">
+                          <span className="font-semibold text-slate-900 dark:text-white">
                             {formatCurrency(billed)}{' '}
-                            <span className="font-normal text-slate-400">/ {formatCurrency(limit)}</span>
+                            <span className="font-normal text-slate-500 dark:text-slate-400">/ {formatCurrency(limit)}</span>
                           </span>
                           <span
-                            className={`font-bold ${
-                              isLocked
-                                ? 'text-red-400'
+                            className={`font-bold ${isLocked
+                                ? 'text-red-600 dark:text-red-400'
                                 : isWarning
-                                ? 'text-amber-400'
-                                : 'text-emerald-400'
-                            }`}
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-emerald-600 dark:text-emerald-400'
+                              }`}
                           >
                             {percentUsed}%
                           </span>
                         </div>
                         {/* Progress Bar */}
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/60 dark:border-transparent">
                           <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              isLocked
+                            className={`h-full rounded-full transition-all duration-500 ${isLocked
                                 ? 'bg-red-500'
                                 : isWarning
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
-                            }`}
+                                  ? 'bg-amber-500'
+                                  : 'bg-emerald-500'
+                              }`}
                             style={{ width: `${percentUsed}%` }}
                           />
                         </div>
                         {isLocked && (
-                          <div className="flex items-center gap-1 text-[11px] font-semibold text-red-400">
+                          <div className="flex items-center gap-1 text-[11px] font-semibold text-red-600 dark:text-red-400">
                             <Lock className="h-3 w-3" />
-                            <span>HTTP 402 Hard Lock Active</span>
+                            <span>Limit Reached (Locked)</span>
                           </div>
                         )}
                       </div>
@@ -338,21 +365,28 @@ export default function OrganizationsPage() {
                     <td className="px-6 py-4">
                       <button
                         onClick={() => openEditModal(org)}
-                        className="group inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-300 hover:border-indigo-500/60 hover:bg-indigo-500/20 transition"
+                        className="group inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:border-indigo-300 dark:hover:border-indigo-500/60 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition shadow-xs"
                         title="Click to edit profit multiplier"
                       >
                         <span>{org.profitMultiplier}x</span>
-                        <Pencil className="h-3 w-3 text-indigo-400 opacity-60 group-hover:opacity-100 transition" />
+                        <Pencil className="h-3 w-3 text-indigo-600 dark:text-indigo-400 opacity-70 group-hover:opacity-100 transition" />
                       </button>
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="text-xs font-medium text-slate-400">
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
                         {org.recruiterCount} Recruiters
                       </span>
                     </td>
 
-                    <td className="px-6 py-4 text-xs text-slate-500">
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 dark:border-purple-500/20 bg-purple-50 dark:bg-purple-950/30 px-2.5 py-1 text-xs font-semibold text-purple-700 dark:text-purple-300">
+                        <FileText className="h-3.5 w-3.5 text-purple-500" />
+                        {org.resumeAnalysisCount ?? 0}
+                      </span>
+                    </td>
+
+                    <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
                       {formatDate(org.createdAt)}
                     </td>
 
@@ -361,7 +395,7 @@ export default function OrganizationsPage() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => openEditModal(org)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-300 transition hover:bg-indigo-500/20"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition hover:bg-indigo-100 dark:hover:bg-indigo-500/20 shadow-xs"
                           title="Edit agency profit multiplier and security deposit"
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -370,9 +404,9 @@ export default function OrganizationsPage() {
 
                         <button
                           onClick={() => setMarkPaidTarget(org)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-500/20"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 transition hover:bg-emerald-100 dark:hover:bg-emerald-500/20 shadow-xs"
                         >
-                          <RotateCcw className="h-3.5 w-3.5" />
+                          <RotateCcw className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
                           <span>Mark as Paid</span>
                         </button>
                       </div>
@@ -383,7 +417,7 @@ export default function OrganizationsPage() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-12 text-center text-slate-500">
+                  <td colSpan={7} className="p-12 text-center text-slate-500 dark:text-slate-400">
                     No agencies match the query.
                   </td>
                 </tr>
@@ -396,23 +430,23 @@ export default function OrganizationsPage() {
       {/* Edit Multiplier & Deposit Modal */}
       {editingOrg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
               <div>
-                <h3 className="text-lg font-bold text-white">Edit Agency Billing Settings</h3>
-                <p className="text-xs text-indigo-400 font-medium">{editingOrg.name} ({editingOrg.slug})</p>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Edit Agency Billing Settings</h3>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">{editingOrg.name} ({editingOrg.slug})</p>
               </div>
               <button
                 onClick={() => setEditingOrg(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {editError && (
-              <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-300">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
                 <span>{editError}</span>
               </div>
             )}
@@ -421,11 +455,11 @@ export default function OrganizationsPage() {
               {/* Profit Multiplier Input */}
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-300">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                     Profit Multiplier (x)
                   </label>
-                  <span className="text-[11px] font-mono text-indigo-400 font-bold">
-                    {Number(editMultiplier).toFixed(2)}x
+                  <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                    {editMultiplier !== '' ? `${Number(editMultiplier).toFixed(2)}x` : '—'}
                   </span>
                 </div>
                 <div className="relative mt-1.5">
@@ -436,35 +470,30 @@ export default function OrganizationsPage() {
                     max="100.0"
                     required
                     value={editMultiplier}
-                    onChange={(e) => setEditMultiplier(parseFloat(e.target.value) || 1.0)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm font-semibold text-white outline-none focus:border-indigo-500"
+                    onChange={(e) => setEditMultiplier(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 px-3.5 py-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   />
-                  <div className="pointer-events-none absolute right-3 top-3 text-xs font-bold text-slate-500">
+                  <div className="pointer-events-none absolute right-3 top-3 text-xs font-bold text-slate-400 dark:text-slate-500">
                     Multiplier
                   </div>
                 </div>
-                <p className="mt-1 text-[11px] text-slate-400">
-                  Markup factor applied to raw AI provider API costs. e.g. 4.0x multiplier means a $0.005 AI call bills the agency $0.020.
-                </p>
               </div>
 
               {/* Security Deposit Limit Input */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Security Deposit Credit Limit ($)
                 </label>
                 <input
                   type="number"
-                  step="25"
-                  min="1"
+                  step="any"
+                  min="0.01"
                   required
                   value={editDepositLimit}
-                  onChange={(e) => setEditDepositLimit(parseFloat(e.target.value) || 0)}
-                  className="mt-1.5 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                  onChange={(e) => setEditDepositLimit(e.target.value)}
+                  placeholder="Enter any custom deposit limit (e.g. 50, 250.75, 1000)"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 px-3.5 py-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                 />
-                <p className="mt-1 text-[11px] text-slate-400">
-                  Maximum credit ceiling before HTTP 402 payment lock engages for this agency.
-                </p>
               </div>
 
               {/* Status Select */}
@@ -478,13 +507,13 @@ export default function OrganizationsPage() {
                   options={[
                     {
                       value: 'active',
-                      label: 'Active (Access Granted)',
+                      label: 'Active',
                       badge: 'Active',
                       color: 'text-emerald-400',
                     },
                     {
                       value: 'suspended',
-                      label: 'Suspended (Access Blocked)',
+                      label: 'Suspended',
                       badge: 'Blocked',
                       color: 'text-rose-400',
                     },
@@ -506,7 +535,7 @@ export default function OrganizationsPage() {
                   disabled={actionLoading}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/30 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 transition"
                 >
-                  {actionLoading ? 'Saving...' : 'Save Multiplier & Settings'}
+                  {actionLoading ? 'Saving...' : 'Save Settings'}
                 </button>
               </div>
             </form>
@@ -517,24 +546,24 @@ export default function OrganizationsPage() {
       {/* Settle Balance / Mark as Paid Modal */}
       {markPaidTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-white">Settle Agency Balance</h3>
-            <p className="mt-2 text-sm text-slate-300">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Settle Agency Balance</h3>
+            <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
               Are you sure you want to mark all outstanding balances for{' '}
-              <span className="font-semibold text-white">{markPaidTarget.name}</span> as received?
+              <span className="font-semibold text-slate-900 dark:text-white">{markPaidTarget.name}</span> as received?
             </p>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               This will reset the total billed amount from{' '}
-              <span className="font-bold text-emerald-400">
+              <span className="font-bold text-emerald-700 dark:text-emerald-400">
                 {formatCurrency(parseFloat(markPaidTarget.totalBilledAmount))}
               </span>{' '}
-              to <span className="font-bold text-emerald-400">$0.00</span>, immediately releasing any HTTP 402 locks.
+              to <span className="font-bold text-emerald-700 dark:text-emerald-400">$0.00</span>.
             </p>
 
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => setMarkPaidTarget(null)}
-                className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+                className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
               >
                 Cancel
               </button>
@@ -543,7 +572,7 @@ export default function OrganizationsPage() {
                 disabled={actionLoading}
                 className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-600/30 hover:bg-emerald-500 disabled:opacity-50"
               >
-                {actionLoading ? 'Processing...' : 'Confirm & Reset to $0.00'}
+                {actionLoading ? 'Processing...' : 'Confirm Payment'}
               </button>
             </div>
           </div>
@@ -553,24 +582,21 @@ export default function OrganizationsPage() {
       {/* Provision Agency Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-lg font-bold text-white">Provision New Agency Tenant</h3>
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Provision New Agency</h3>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="mt-2 text-xs text-slate-400">
-              Creates the agency entity, sets offline security deposit threshold, profit multiplier, and provisions initial Org Admin.
-            </p>
 
             <form onSubmit={handleCreateOrg} className="mt-4 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300">Agency Name</label>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Agency Name</label>
                   <input
                     type="text"
                     required
@@ -583,41 +609,42 @@ export default function OrganizationsPage() {
                       })
                     }
                     placeholder="Apex Staffing Solutions"
-                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                    className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300">Tenant Slug</label>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Tenant Slug</label>
                   <input
                     type="text"
                     required
                     value={formData.slug}
                     onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
                     placeholder="apex-staffing"
-                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                    className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300">
-                    Security Deposit Limit ($)
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Security Deposit Credit Limit ($)
                   </label>
                   <input
                     type="number"
-                    step="50"
-                    min="1"
+                    step="any"
+                    min="0.01"
                     required
                     value={formData.securityDepositLimit}
                     onChange={(e) =>
-                      setFormData({ ...formData, securityDepositLimit: parseFloat(e.target.value) })
+                      setFormData({ ...formData, securityDepositLimit: e.target.value })
                     }
-                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                    placeholder="Enter any amount (e.g. 50, 250, 1500)"
+                    className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300">Profit Multiplier</label>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Profit Multiplier</label>
                   <input
                     type="number"
                     step="0.1"
@@ -625,52 +652,52 @@ export default function OrganizationsPage() {
                     required
                     value={formData.profitMultiplier}
                     onChange={(e) =>
-                      setFormData({ ...formData, profitMultiplier: parseFloat(e.target.value) })
+                      setFormData({ ...formData, profitMultiplier: e.target.value })
                     }
-                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                    className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                   />
                 </div>
               </div>
 
-              <div className="border-t border-slate-800 pt-3">
-                <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
+              <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
+                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                   Initial Org Admin Credentials
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300">Admin Full Name</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Admin Full Name</label>
                 <input
                   type="text"
                   required
                   value={formData.adminFullName}
                   onChange={(e) => setFormData({ ...formData, adminFullName: e.target.value })}
                   placeholder="Sarah Jenkins"
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                  className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300">Admin Email</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Admin Email</label>
                 <input
                   type="email"
                   required
                   value={formData.adminEmail}
                   onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
                   placeholder="admin@agency.com"
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                  className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300">Initial Password</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Initial Password</label>
                 <input
                   type="password"
                   required
                   value={formData.adminPassword}
                   onChange={(e) => setFormData({ ...formData, adminPassword: e.target.value })}
                   placeholder="••••••••••••"
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                  className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-2.5 text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                 />
               </div>
 
@@ -678,7 +705,7 @@ export default function OrganizationsPage() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+                  className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                 >
                   Cancel
                 </button>

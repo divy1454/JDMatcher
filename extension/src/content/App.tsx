@@ -15,6 +15,44 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const [recruiterPassword, setRecruiterPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [deviceLockedData, setDeviceLockedData] = useState<{
+    isLocked: boolean;
+    message?: string;
+    approvalTier?: 'org_admin' | 'super_admin';
+    instructions?: string;
+  } | null>(null);
+
+  // Theme state: 'dark' | 'light' (persisted in chrome.storage.local)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  useEffect(() => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(['jdm_theme'], (res) => {
+          if (res?.jdm_theme === 'dark' || res?.jdm_theme === 'light') {
+            setTheme(res.jdm_theme);
+          }
+        });
+      } else {
+        const saved = localStorage.getItem('jdm_theme');
+        if (saved === 'dark' || saved === 'light') {
+          setTheme(saved);
+        }
+      }
+    } catch (_e) { }
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ jdm_theme: nextTheme });
+      } else {
+        localStorage.setItem('jdm_theme', nextTheme);
+      }
+    } catch (_e) { }
+  };
 
   // Candidates & Selection
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -112,6 +150,13 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     // Generate machine hardware fingerprint and store for persistent device locking
     generateHardwareFingerprint().then((fp) => {
       chrome.storage.local.set({ deviceId: fp });
+      try {
+        chrome.runtime.sendMessage({ type: 'SET_DEVICE_ID', deviceId: fp }, () => {
+          if (chrome.runtime.lastError) {
+            // Background script not yet active
+          }
+        });
+      } catch (_e) {}
     });
 
     chrome.storage.local.get(['token', 'userName', 'evaluationState', 'frontendUrl', 'apiUrl', 'selectedCandidateId'], async (data) => {
@@ -378,10 +423,21 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
       const data = await res.json();
       if (!res.ok) {
+        if (data.error === 'DEVICE_LOCKED') {
+          setDeviceLockedData({
+            isLocked: true,
+            message: data.message,
+            approvalTier: data.approvalTier || 'org_admin',
+            instructions: data.instructions,
+          });
+        } else {
+          setDeviceLockedData(null);
+        }
         setLoginError(data.message || 'Login failed');
         return;
       }
 
+      setDeviceLockedData(null);
       const name = data.user?.fullName?.split(' ')[0] || 'Recruiter';
       await chrome.storage.local.set({ token: data.token, userName: name });
       setToken(data.token);
@@ -813,7 +869,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
   const strategicNotes = evalResult?.otherNotes || evalResult?.strategicNotes || '';
 
   return (
-    <div ref={containerRef} className="jdm-popup-window">
+    <div ref={containerRef} className={`jdm-popup-window jdm-theme-${theme}`}>
       {/* Non-intrusive Toast Notifications */}
       {toastMessage && (
         <div className="jdm-toast-container">
@@ -823,7 +879,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
         </div>
       )}
 
-      {/* 1. Top Dark Section (Header, Active Candidate, Quota Bar) */}
+      {/* 1. Top Section (Header, Active Candidate, Quota Bar) */}
       <div className="jdm-top-dark-section">
         {/* Header Bar */}
         <div className="jdm-header">
@@ -846,17 +902,37 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 <span>{userName || 'Recruiter'}</span>
               </div>
             )}
-            {token && (
-              <button className="jdm-icon-btn" onClick={handleLogout} title="Sign Out">
-                ↪
-              </button>
-            )}
+            {/* Theme Toggle Button (Replaces Sign Out) */}
+            <button
+              type="button"
+              className="jdm-icon-btn jdm-theme-toggle-btn"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {theme === 'dark' ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2" />
+                  <path d="M12 20v2" />
+                  <path d="m4.93 4.93 1.41 1.41" />
+                  <path d="m17.66 17.66 1.41 1.41" />
+                  <path d="M2 12h2" />
+                  <path d="M20 12h2" />
+                  <path d="m6.34 17.66-1.41 1.41" />
+                  <path d="m19.07 4.93-1.41 1.41" />
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+                </svg>
+              )}
+            </button>
             <a
-              href={`${frontendUrl}/recruiter-portal/candidates`}
+              href={`${frontendUrl}/recruiter-portal/profile`}
               target="_blank"
               rel="noreferrer"
               className="jdm-icon-btn"
-              title="Open Settings"
+              title="Open My Profile & Machine Settings"
             >
               ⚙
             </a>
@@ -1145,7 +1221,69 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             <p style={{ fontSize: '11px', color: '#64748b', margin: 0 }}>
               Credentials bind your physical machine hardware to your agency seat.
             </p>
-            {loginError && <div className="jdm-error-alert">{loginError}</div>}
+            {deviceLockedData?.isLocked ? (
+              <div
+                style={{
+                  background: '#fff1f2',
+                  border: '1.5px solid #f43f5e',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  margin: '10px 0',
+                  color: '#9f1239',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, fontSize: '13px' }}>
+                  <span>🔒</span>
+                  <span>Physical Machine Locked</span>
+                </div>
+                <div style={{ fontSize: '11px', marginTop: '5px', lineHeight: 1.45, color: '#881337' }}>
+                  {deviceLockedData.message || 'This recruiter seat is bound to another physical machine.'}
+                </div>
+                <div
+                  style={{
+                    background: 'rgba(244, 63, 94, 0.08)',
+                    borderRadius: '6px',
+                    padding: '8px',
+                    marginTop: '8px',
+                    fontSize: '11px',
+                    color: '#9f1239',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+                    {deviceLockedData.approvalTier === 'super_admin'
+                      ? '⚠️ Monthly Limit Exceeded — Super Admin Approval Required'
+                      : '📋 Organization Admin Approval Required'}
+                  </div>
+                  <div>
+                    {deviceLockedData.approvalTier === 'super_admin'
+                      ? 'You have already transferred machines once this month. Please ask your Super Admin to unlock your machine.'
+                      : 'Recruiters can only change machines once per month. Please tell your Organization Admin to unlock your machine.'}
+                  </div>
+                </div>
+                <a
+                  href={`${frontendUrl}/login`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: 'block',
+                    textAlign: 'center',
+                    marginTop: '10px',
+                    padding: '8px 12px',
+                    background: '#e11d48',
+                    color: '#ffffff',
+                    borderRadius: '6px',
+                    fontWeight: 700,
+                    fontSize: '11px',
+                    textDecoration: 'none',
+                    boxShadow: '0 2px 6px rgba(225, 29, 72, 0.25)',
+                  }}
+                >
+                  Open Web Portal to Request Machine Unlock →
+                </a>
+              </div>
+            ) : (
+              loginError && <div className="jdm-error-alert">{loginError}</div>
+            )}
 
             {/* Auto-Sync with Recruiter Portal Tab */}
             <div style={{ marginTop: '10px', marginBottom: '8px' }}>
@@ -1228,7 +1366,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
               </button>
 
               {showServerConfig && (
-                <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '6px' }}>
+                <div className="jdm-server-config-card">
                   <label className="jdm-field-label" style={{ marginBottom: '4px' }}>Backend API URL</label>
                   <input
                     type="url"
@@ -1473,7 +1611,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 <div style={{ fontSize: '11px', marginTop: '3px', lineHeight: 1.4 }}>
                   {evalState.errorMessage || 'This seat is locked to another machine.'}
                   <div style={{ marginTop: '4px', fontWeight: 600 }}>
-                    Please contact your Super Admin to reset your hardware device authorization.
+                    Please contact your Organization Admin to unlock your machine (or Super Admin if monthly limit exceeded).
                   </div>
                 </div>
               </div>
@@ -1559,7 +1697,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                       </div>
                       <div id="res-aligned-skills" className="chip-container">
                         {alignedItems.length === 0 ? (
-                          <span className="chip" style={{ background: '#f1f5f9', color: '#64748b' }}>None detected</span>
+                          <span className="chip chip-empty-state">None detected</span>
                         ) : (
                           alignedItems.map((skill, idx) => (
                             <span key={idx} className="chip chip-aligned">
@@ -1576,7 +1714,7 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                       </div>
                       <div id="res-gaps" className="chip-container">
                         {missingItems.length === 0 ? (
-                          <span className="chip" style={{ background: '#f0fdf4', color: '#065f46' }}>No critical gaps</span>
+                          <span className="chip chip-empty-clean">No critical gaps</span>
                         ) : (
                           missingItems.map((gap, idx) => (
                             <span key={idx} className="chip chip-gap">

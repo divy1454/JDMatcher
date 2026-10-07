@@ -26,6 +26,8 @@ export const clearanceEnum = pgEnum('security_clearance', [
 ]);
 export const evalVerdictEnum = pgEnum('eval_verdict', ['APPLY', 'SKIP', 'PENDING']);
 export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'pending', 'generated', 'paid', 'overdue', 'void']);
+export const unlockRequestStatusEnum = pgEnum('unlock_request_status', ['pending', 'approved', 'rejected']);
+export const approvalTierEnum = pgEnum('approval_tier', ['org_admin', 'super_admin']);
 
 // 1. ORGANIZATIONS (Agencies)
 export const organizations = pgTable('organizations', {
@@ -53,6 +55,8 @@ export const users = pgTable('users', {
   deviceId: varchar('device_id', { length: 255 }),
   deviceLastLockedAt: timestamp('device_last_locked_at', { withTimezone: true }),
   deviceSwitchAllowedAfter: timestamp('device_switch_allowed_after', { withTimezone: true }),
+  deviceMonthlySwitchCount: integer('device_monthly_switch_count').notNull().default(0),
+  deviceSwitchCountResetAt: timestamp('device_switch_count_reset_at', { withTimezone: true }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -109,10 +113,12 @@ export const tokenConsumptionLedger = pgTable('token_consumption_ledger', {
   billedCostUsd: numeric('billed_cost_usd', { precision: 12, scale: 6 }).notNull(),
   latencyMs: integer('latency_ms').notNull(),
   modelName: varchar('model_name', { length: 100 }).notNull().default('gemini-3.5-flash-lite'),
+  actionType: varchar('action_type', { length: 50 }).notNull().default('eval'),
   timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index('ledger_org_idx').on(t.organizationId),
   index('ledger_timestamp_idx').on(t.timestamp),
+  index('ledger_action_type_idx').on(t.actionType),
 ]);
 
 // 6. PLATFORM SETTINGS (Global Configuration, e.g. Fallback Prompt)
@@ -158,6 +164,55 @@ export const invoices = pgTable('invoices', {
   index('invoices_org_idx').on(t.organizationId),
   index('invoices_month_idx').on(t.billingMonth),
   index('invoices_status_idx').on(t.status),
+]);
+
+// 8. RESUME ANALYSES (Recruiter Talent Intelligence & Sponsorship Research)
+export const resumeAnalyses = pgTable('resume_analyses', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  recruiterId: uuid('recruiter_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  candidateId: uuid('candidate_id').references(() => candidates.id, { onDelete: 'set null' }),
+  candidateName: varchar('candidate_name', { length: 255 }).notNull(),
+  candidateTitle: varchar('candidate_title', { length: 255 }),
+  rawResumeText: text('raw_resume_text').notNull(),
+  totalYearsExperience: varchar('total_years_experience', { length: 255 }),
+  coreSpecialization: text('core_specialization'),
+  targetSeniority: varchar('target_seniority', { length: 255 }),
+  seniorityRationale: text('seniority_rationale'),
+  industriesAndDomains: jsonb('industries_and_domains').notNull().default({}),
+  roleTiers: jsonb('role_tiers').notNull().default([]),
+  honestNotes: jsonb('honest_notes').notNull().default({}),
+  primaryFitCompanies: jsonb('primary_fit_companies').notNull().default([]),
+  secondaryFitCompanies: jsonb('secondary_fit_companies').notNull().default([]),
+  workflowNotes: jsonb('workflow_notes').notNull().default({}),
+  fullMarkdown: text('full_markdown'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('resume_analyses_org_idx').on(t.organizationId),
+  index('resume_analyses_recruiter_idx').on(t.recruiterId),
+  index('resume_analyses_candidate_idx').on(t.candidateId),
+]);
+
+// 9. DEVICE UNLOCK REQUESTS (Machine transfer approval workflows)
+export const deviceUnlockRequests = pgTable('device_unlock_requests', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  recruiterId: uuid('recruiter_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  requestedDeviceId: varchar('requested_device_id', { length: 255 }).notNull(),
+  currentDeviceId: varchar('current_device_id', { length: 255 }),
+  reason: text('reason'),
+  approvalTier: approvalTierEnum('approval_tier').notNull().default('org_admin'),
+  status: unlockRequestStatusEnum('status').notNull().default('pending'),
+  reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  rejectionReason: text('rejection_reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('unlock_req_org_idx').on(t.organizationId),
+  index('unlock_req_recruiter_idx').on(t.recruiterId),
+  index('unlock_req_status_idx').on(t.status),
 ]);
 
 // Relations
@@ -219,6 +274,36 @@ export const tokenConsumptionLedgerRelations = relations(tokenConsumptionLedger,
   }),
 }));
 
+export const resumeAnalysesRelations = relations(resumeAnalyses, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [resumeAnalyses.organizationId],
+    references: [organizations.id],
+  }),
+  recruiter: one(users, {
+    fields: [resumeAnalyses.recruiterId],
+    references: [users.id],
+  }),
+  candidate: one(candidates, {
+    fields: [resumeAnalyses.candidateId],
+    references: [candidates.id],
+  }),
+}));
+
+export const deviceUnlockRequestsRelations = relations(deviceUnlockRequests, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [deviceUnlockRequests.organizationId],
+    references: [organizations.id],
+  }),
+  recruiter: one(users, {
+    fields: [deviceUnlockRequests.recruiterId],
+    references: [users.id],
+  }),
+  reviewedBy: one(users, {
+    fields: [deviceUnlockRequests.reviewedByUserId],
+    references: [users.id],
+  }),
+}));
+
 // Export inferred types
 export type Organization = typeof organizations.$inferSelect;
 export type InsertOrganization = typeof organizations.$inferInsert;
@@ -240,3 +325,10 @@ export type InsertPlatformSetting = typeof platformSettings.$inferInsert;
 
 export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = typeof invoices.$inferInsert;
+
+export type ResumeAnalysis = typeof resumeAnalyses.$inferSelect;
+export type InsertResumeAnalysis = typeof resumeAnalyses.$inferInsert;
+
+export type DeviceUnlockRequest = typeof deviceUnlockRequests.$inferSelect;
+export type InsertDeviceUnlockRequest = typeof deviceUnlockRequests.$inferInsert;
+

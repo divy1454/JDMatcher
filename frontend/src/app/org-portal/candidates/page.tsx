@@ -209,9 +209,9 @@ export default function CandidatesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Talent Profiles</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Manage candidates and assign them to dedicated recruiters. Recruiters only access their assigned profiles in the Chrome Extension.
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Talent Profiles</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Manage candidates and recruiter assignments.
           </p>
         </div>
 
@@ -226,14 +226,14 @@ export default function CandidatesPage() {
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex flex-1 items-center rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 backdrop-blur">
+        <div className="flex flex-1 items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2 shadow-sm">
           <Search className="h-4 w-4 text-slate-500" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search candidate by name, title, or recruiter..."
-            className="ml-2 w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none"
+            className="ml-2 w-full bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none"
           />
         </div>
 
@@ -252,11 +252,11 @@ export default function CandidatesPage() {
       {/* Candidates List */}
       <div className="space-y-3">
         {isLoading ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 p-12 text-center text-slate-500 shadow-sm">
             Loading talent profiles...
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 p-12 text-center text-slate-500 shadow-sm">
             No candidates match the filter criteria.
           </div>
         ) : (
@@ -266,18 +266,18 @@ export default function CandidatesPage() {
             return (
               <div
                 key={candidate.id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl transition hover:border-slate-700"
+                className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm dark:shadow-none transition hover:border-slate-300 dark:hover:border-slate-700 hover:z-20 focus-within:z-30 [&:has([aria-expanded='true'])]:z-40"
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <div className="flex items-center gap-3">
-                      <h3 className="text-base font-bold text-white">{candidate.fullName}</h3>
-                      <span className="rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-semibold text-violet-300">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">{candidate.fullName}</h3>
+                      <span className="rounded-md border border-violet-200 dark:border-violet-500/30 bg-violet-50 dark:bg-violet-500/10 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:text-violet-300">
                         {candidate.primaryTitle}
                       </span>
                     </div>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                       <span>Added {formatDate(candidate.createdAt)}</span>
                       <span>•</span>
                       <span>{candidate.resumeLength ? `${candidate.resumeLength} chars resume` : 'Resume attached'}</span>
@@ -293,7 +293,7 @@ export default function CandidatesPage() {
                         value={candidate.createdByRecruiterId || ''}
                         onChange={(val) => handleReassignRecruiter(candidate.id, val)}
                         options={candidateAssignmentOptions}
-                        icon={<UserCheck className="h-3.5 w-3.5 text-violet-400" />}
+                        icon={<UserCheck className="h-3.5 w-3.5 text-violet-500" />}
                         placeholder="Assign Recruiter"
                       />
                     </div>
@@ -301,7 +301,7 @@ export default function CandidatesPage() {
                     {/* View/Hide Resume Button */}
                     <button
                       onClick={() => toggleResume(candidate.id)}
-                      className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-700 transition"
+                      className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition shadow-xs"
                     >
                       <FileText className="h-3.5 w-3.5" />
                       <span>{isExpanded ? 'Hide Resume' : 'View Resume'}</span>
@@ -311,7 +311,7 @@ export default function CandidatesPage() {
                     {/* Delete Button */}
                     <button
                       onClick={() => handleDelete(candidate.id, candidate.fullName)}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition"
                       title="Delete Candidate"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -321,31 +321,31 @@ export default function CandidatesPage() {
 
                 {/* Hidden / Collapsible Raw Resume Block with Copy Button */}
                 {isExpanded && (
-                  <div className="mt-4 border-t border-slate-800/80 pt-4">
+                  <div className="mt-4 border-t border-slate-200 dark:border-slate-800/80 pt-4">
                     <div className="mb-2 flex items-center justify-between">
-                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                        Raw Candidate Resume (Fed into Natural Fit Blueprint)
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Candidate Resume
                       </label>
                       <button
                         onClick={() => handleCopyResume(candidate.rawResumeText || '', candidate.id)}
                         disabled={!candidate.rawResumeText}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition disabled:opacity-50 shadow-xs"
                         title="Copy full candidate resume"
                       >
                         {copiedResumeId === candidate.id ? (
                           <>
-                            <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            <span className="font-semibold">Copied Resume!</span>
+                            <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-300">Copied Resume!</span>
                           </>
                         ) : (
                           <>
-                            <Copy className="h-3.5 w-3.5" />
+                            <Copy className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                             <span>Copy Resume</span>
                           </>
                         )}
                       </button>
                     </div>
-                    <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs text-slate-300">
+                    <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-4 font-mono text-xs text-slate-800 dark:text-slate-300">
                       {candidate.rawResumeText || 'Loading resume text...'}
                     </pre>
                   </div>
@@ -359,62 +359,56 @@ export default function CandidatesPage() {
       {/* Add Candidate Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm overflow-y-auto">
-          <div className="my-8 w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-white">Add Candidate Profile</h3>
-            <p className="mt-1 text-xs text-slate-400">
-              Only Full Name, Primary Role, and Resume are required. Assign to a recruiter so they can evaluate against job postings.
-            </p>
+          <div className="my-8 w-full max-w-xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Add Candidate Profile</h3>
 
             <form onSubmit={handleCreateCandidate} className="mt-4 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300">Full Name</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Full Name</label>
                 <input
                   type="text"
                   required
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                   placeholder="e.g. Vikram Sharma"
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-violet-500"
+                  className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2.5 text-sm text-slate-900 dark:text-white outline-none focus:border-violet-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300">Primary Role</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Primary Role</label>
                 <input
                   type="text"
                   required
                   value={formData.primaryTitle}
                   onChange={(e) => setFormData({ ...formData, primaryTitle: e.target.value })}
                   placeholder="e.g. Senior Full Stack Engineer"
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-sm text-white outline-none focus:border-violet-500"
+                  className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2.5 text-sm text-slate-900 dark:text-white outline-none focus:border-violet-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Assign to Recruiter</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Assign to Recruiter</label>
                 <CustomDropdown
                   value={formData.createdByRecruiterId}
                   onChange={(val) => setFormData({ ...formData, createdByRecruiterId: val })}
                   options={modalAssignmentOptions}
-                  icon={<UserCheck className="h-4 w-4 text-violet-400" />}
+                  icon={<UserCheck className="h-4 w-4 text-violet-500" />}
                   placeholder="Assign to Recruiter"
                 />
-                <p className="mt-1.5 text-[11px] text-slate-500">
-                  Assigned recruiters will immediately see this candidate in their Chrome Extension candidate dropdown.
-                </p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300">
-                  Raw Resume Text
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Resume Content
                 </label>
                 <textarea
                   rows={8}
                   required
                   value={formData.rawResumeText}
                   onChange={(e) => setFormData({ ...formData, rawResumeText: e.target.value })}
-                  placeholder="Paste complete raw text of the candidate's resume..."
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-white outline-none focus:border-violet-500"
+                  placeholder="Paste candidate's resume..."
+                  className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-white outline-none focus:border-violet-500"
                 />
               </div>
 
@@ -422,7 +416,7 @@ export default function CandidatesPage() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+                  className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                 >
                   Cancel
                 </button>

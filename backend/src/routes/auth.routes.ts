@@ -3,7 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { users, organizations } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { authGuard } from '../middleware/authGuard.js';
 
 import { env } from '../env.js';
@@ -11,6 +11,14 @@ import { env } from '../env.js';
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+});
+
+const updateProfileSchema = z.object({
+  fullName: z.string().min(2, 'Full name must be at least 2 characters').max(100).optional(),
+  email: z.string().email('Please enter a valid email address').optional(),
+  currentPassword: z.string().optional(),
+  newPassword: z.string().min(6, 'New password must be at least 6 characters').optional(),
+  organizationName: z.string().min(2, 'Organization name must be at least 2 characters').max(200).optional(),
 });
 
 export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
@@ -38,47 +46,55 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
       return reply.status(401).send({ error: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
     }
 
-    // Hardware lock: if recruiter logging in from Chrome Extension with x-device-id
+    // Hardware lock: recruiter authentication strictly bound to machine fingerprint
     if (user.role === 'recruiter') {
       const deviceIdHeader = request.headers['x-device-id'];
       const rawDeviceId = Array.isArray(deviceIdHeader) ? deviceIdHeader[0] : deviceIdHeader;
-      if (rawDeviceId && typeof rawDeviceId === 'string' && rawDeviceId.trim().length > 0) {
-        const cleanDeviceId = rawDeviceId.trim();
-        const now = new Date();
-        const isSwitchAllowed = !user.deviceSwitchAllowedAfter || now >= new Date(user.deviceSwitchAllowedAfter);
 
-        if (!user.deviceId || user.deviceId === cleanDeviceId) {
-          if (!user.deviceId) {
-            const switchAllowedAfter = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-            await db
-              .update(users)
-              .set({
-                deviceId: cleanDeviceId,
-                deviceLastLockedAt: now,
-                deviceSwitchAllowedAfter: switchAllowedAfter,
-                updatedAt: now,
-              })
-              .where(eq(users.id, user.id));
-            user.deviceId = cleanDeviceId;
-            user.deviceLastLockedAt = now;
-            user.deviceSwitchAllowedAfter = switchAllowedAfter;
-          }
-        } else if (env.NODE_ENV !== 'production' || isSwitchAllowed) {
-          // In testing mode or when cooldown has elapsed, auto-bind to the active machine
-          const switchAllowedAfter = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-          await db
-            .update(users)
-            .set({
-              deviceId: cleanDeviceId,
-              deviceLastLockedAt: now,
-              deviceSwitchAllowedAfter: switchAllowedAfter,
-              updatedAt: now,
-            })
-            .where(eq(users.id, user.id));
-          user.deviceId = cleanDeviceId;
-          user.deviceLastLockedAt = now;
-          user.deviceSwitchAllowedAfter = switchAllowedAfter;
-        }
+      if (!rawDeviceId || typeof rawDeviceId !== 'string' || rawDeviceId.trim().length === 0) {
+        return reply.status(400).send({
+          error: 'DEVICE_ID_REQUIRED',
+          code: 'DEVICE_ID_REQUIRED',
+          message: 'Hardware machine identity is required for recruiter authentication. Please enable device fingerprinting.',
+        });
+      }
+
+      const cleanDeviceId = rawDeviceId.trim();
+      const now = new Date();
+
+      if (!user.deviceId) {
+        // First-time recruiter login: bind to this physical machine
+        const switchAllowedAfter = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        await db
+          .update(users)
+          .set({
+            deviceId: cleanDeviceId,
+            deviceLastLockedAt: now,
+            deviceSwitchAllowedAfter: switchAllowedAfter,
+            deviceMonthlySwitchCount: 0,
+            updatedAt: now,
+          })
+          .where(eq(users.id, user.id));
+        user.deviceId = cleanDeviceId;
+        user.deviceLastLockedAt = now;
+        user.deviceSwitchAllowedAfter = switchAllowedAfter;
+      } else if (user.deviceId !== cleanDeviceId) {
+        // Recruiter is bound to a different machine: REJECT LOGIN!
+        const isCooldownExpired = !user.deviceSwitchAllowedAfter || now >= new Date(user.deviceSwitchAllowedAfter);
+        const effectiveSwitchCount = isCooldownExpired ? 0 : (user.deviceMonthlySwitchCount || 0);
+        const approvalTier = effectiveSwitchCount === 0 ? 'org_admin' : 'super_admin';
+        const adminName = approvalTier === 'org_admin' ? 'Organization Admin' : 'Super Admin';
+
+        return reply.status(403).send({
+          error: 'DEVICE_LOCKED',
+          code: 'DEVICE_LOCKED',
+          message: `This recruiter ID is locked to another machine. Login from this device is not permitted. Please ask your ${adminName} to unlock or approve a machine transfer.`,
+          lockedDeviceId: user.deviceId,
+          incomingDeviceId: cleanDeviceId,
+          approvalTier,
+          monthlySwitchCount: effectiveSwitchCount,
+          deviceSwitchAllowedAfter: user.deviceSwitchAllowedAfter,
+        });
       }
     }
 
@@ -169,7 +185,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
   // GET /api/auth/me
   fastify.get('/me', { preHandler: [authGuard] }, async (request, reply) => {
     const user = request.user!;
-    let orgInfo = null;
+    let orgInfo: any = null;
     if (user.organizationId) {
       const [org] = await db
         .select()
@@ -177,11 +193,20 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         .where(eq(organizations.id, user.organizationId))
         .limit(1);
       if (org) {
+        let teamCount = 0;
+        if (user.role === 'org_admin') {
+          const teamList = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.organizationId, user.organizationId), eq(users.role, 'recruiter')));
+          teamCount = teamList.length;
+        }
+
         if (user.role === 'super_admin') {
-          orgInfo = org;
+          orgInfo = { ...org, teamCount };
         } else {
           const { profitMultiplier: _m, ...cleanOrg } = org;
-          orgInfo = cleanOrg;
+          orgInfo = { ...cleanOrg, teamCount };
         }
       }
     }
@@ -189,6 +214,156 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     return reply.send({
       user,
       organization: orgInfo,
+    });
+  });
+
+  // PUT /api/auth/profile (Self-service profile & credential updates for recruiters and admins)
+  fastify.put('/profile', { preHandler: [authGuard] }, async (request, reply) => {
+    const user = request.user!;
+    const parseResult = updateProfileSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const errorMsg = parseResult.error.issues.map((i) => i.message).join(', ');
+      return reply.status(400).send({
+        error: 'INVALID_PAYLOAD',
+        message: errorMsg || 'Invalid profile payload',
+        details: parseResult.error.issues,
+      });
+    }
+
+    const { fullName, email, currentPassword, newPassword, organizationName } = parseResult.data;
+
+    // Fetch fresh user record
+    const [currentUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    if (!currentUser) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: 'User account not found.' });
+    }
+
+    // Check email uniqueness if email is changed
+    let updatedEmail = currentUser.email;
+    if (email && email.toLowerCase().trim() !== currentUser.email.toLowerCase().trim()) {
+      const cleanEmail = email.toLowerCase().trim();
+      const [existingUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.email, cleanEmail), ne(users.id, currentUser.id)))
+        .limit(1);
+
+      if (existingUser) {
+        return reply.status(409).send({
+          error: 'EMAIL_EXISTS',
+          message: `The email "${cleanEmail}" is already registered to another account. Please use a different address.`,
+        });
+      }
+      updatedEmail = cleanEmail;
+    }
+
+    // Password change verification
+    let newPasswordHash: string | undefined;
+    if (newPassword) {
+      if (!currentPassword) {
+        return reply.status(400).send({
+          error: 'CURRENT_PASSWORD_REQUIRED',
+          message: 'Please enter your current password to set a new password.',
+        });
+      }
+
+      const isCurrentMatch = await bcrypt.compare(currentPassword, currentUser.passwordHash);
+      if (!isCurrentMatch) {
+        return reply.status(400).send({
+          error: 'INCORRECT_CURRENT_PASSWORD',
+          message: 'The current password you entered is incorrect.',
+        });
+      }
+
+      newPasswordHash = await bcrypt.hash(newPassword, 10);
+    }
+
+    const updatedFullName = fullName ? fullName.trim() : currentUser.fullName;
+    const now = new Date();
+
+    // Update user row
+    await db
+      .update(users)
+      .set({
+        fullName: updatedFullName,
+        email: updatedEmail,
+        ...(newPasswordHash ? { passwordHash: newPasswordHash } : {}),
+        updatedAt: now,
+      })
+      .where(eq(users.id, currentUser.id));
+
+    // If org_admin and organizationName provided, update organization
+    let updatedOrg: any = null;
+    if (user.role === 'org_admin' && user.organizationId && organizationName && organizationName.trim()) {
+      await db
+        .update(organizations)
+        .set({
+          name: organizationName.trim(),
+          updatedAt: now,
+        })
+        .where(eq(organizations.id, user.organizationId));
+    }
+
+    if (user.organizationId) {
+      const [org] = await db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, user.organizationId))
+        .limit(1);
+      if (org) {
+        let teamCount = 0;
+        if (user.role === 'org_admin') {
+          const teamList = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.organizationId, user.organizationId), eq(users.role, 'recruiter')));
+          teamCount = teamList.length;
+        }
+
+        if (user.role === 'super_admin') {
+          updatedOrg = { ...org, teamCount };
+        } else {
+          const { profitMultiplier: _m, ...cleanOrg } = org;
+          updatedOrg = { ...cleanOrg, teamCount };
+        }
+      }
+    }
+
+    // Generate fresh JWT token with updated credentials
+    const newToken = fastify.jwt.sign(
+      {
+        id: currentUser.id,
+        email: updatedEmail,
+        role: currentUser.role,
+        organizationId: currentUser.organizationId,
+      },
+      { expiresIn: '7d' }
+    );
+
+    const updatedUser = {
+      id: currentUser.id,
+      organizationId: currentUser.organizationId,
+      role: currentUser.role,
+      email: updatedEmail,
+      fullName: updatedFullName,
+      deviceId: currentUser.deviceId,
+      deviceLastLockedAt: currentUser.deviceLastLockedAt,
+      deviceSwitchAllowedAfter: currentUser.deviceSwitchAllowedAfter,
+      deviceMonthlySwitchCount: currentUser.deviceMonthlySwitchCount,
+      createdAt: currentUser.createdAt,
+    };
+
+    return reply.send({
+      success: true,
+      message: 'Profile updated successfully!',
+      user: updatedUser,
+      organization: updatedOrg,
+      token: newToken,
     });
   });
 };

@@ -34,6 +34,68 @@ export interface GeminiEvaluationResponse {
   usage: TokenUsage;
 }
 
+export interface CandidateSnapshot {
+  totalYearsExperience: string;
+  coreSpecialization: string;
+  targetSeniority: string;
+  seniorityRationale: string;
+}
+
+export interface IndustryDomainItem {
+  name: string;
+  details: string;
+}
+
+export interface IndustriesAndDomains {
+  handsOnDomains: IndustryDomainItem[];
+  functionalExperience: string[];
+  unsupportedDomains: string[];
+}
+
+export interface RoleTier {
+  tier: 'Primary' | 'Secondary' | 'Stretch';
+  roles: string[];
+  skillsToLeadWith: string[];
+  bestFitIndustries: string[];
+}
+
+export interface HonestNotes {
+  weakSpotsAndRisks: string[];
+  titlingMismatches: string[];
+  rolesAndIndustriesToAvoid: string[];
+  educationAndTiming: string[];
+  workAuthorizationAdvisory: string;
+}
+
+export interface TargetCompany {
+  company: string;
+  type: string;
+  sponsorshipNotes: string;
+}
+
+export interface WorkflowNotes {
+  verifyBeforeSubmitting: string[];
+  workAuthAndTiming: string[];
+  titlingAndDualFit: string[];
+  sources: Array<{ name: string; url: string }>;
+}
+
+export interface ResumeAnalysisResult {
+  candidateSnapshot: CandidateSnapshot;
+  industriesAndDomains: IndustriesAndDomains;
+  roleTiers: RoleTier[];
+  honestNotes: HonestNotes;
+  primaryFitCompanies: TargetCompany[];
+  secondaryFitCompanies: TargetCompany[];
+  workflowNotes: WorkflowNotes;
+  fullMarkdown?: string;
+}
+
+export interface GeminiResumeAnalysisResponse {
+  result: ResumeAnalysisResult;
+  usage: TokenUsage;
+}
+
 export class GeminiService {
   private static aiClient: GoogleGenAI | null = null;
 
@@ -393,5 +455,291 @@ You MUST respond strictly with valid, unescaped JSON matching this schema exactl
       workPrefMatch: true,
       strategicNotes: otherNotes,
     };
+  }
+
+  /**
+   * Performs deep Recruiter Talent Intelligence & Sponsorship Research analysis on a candidate's resume.
+   */
+  static async analyzeResume(resumeText: string, candidateName?: string): Promise<GeminiResumeAnalysisResponse> {
+    const startTime = Date.now();
+    const client = this.getClient();
+    const modelName = env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+
+    const prompt = `You are a premier executive recruiter intelligence advisor for US IT, analytics, engineering, and enterprise staffing.
+I'm attaching a candidate's resume below. Analyze it thoroughly and generate a comprehensive recruiter intelligence report.
+
+CANDIDATE NAME: ${candidateName || 'Candidate Profile'}
+
+RESUME CONTENT:
+"""
+${resumeText}
+"""
+
+ANALYSIS REQUIREMENTS:
+1) CANDIDATE SNAPSHOT — total years of experience, core specialization, and target seniority level (infer this from the resume itself; default to Senior-level unless the resume clearly indicates otherwise). Explain your seniority reasoning.
+2) INDUSTRIES / DOMAINS — list every industry/domain the candidate has hands-on experience in, based only on what's actually in the resume. Don't inflate or assume domains not shown. Call out cross-industry functional experience, and explicitly list unsupported/missing domains that should NOT be pitched without a story.
+3) PRIMARY / SECONDARY / STRETCH ROLES — organize into a structured matrix: Tier | Roles | Skills to Lead With | Best-Fit Industries.
+   - Primary: direct natural fit roles matching their exact background.
+   - Secondary: adjacent data/functional roles where skills transfer well.
+   - Stretch: next-level titles or senior/management stretch opportunities with prerequisites.
+4) HONEST NOTES FOR MY TEAM — call out weak spots, overselling risks, unverifiable claims, titling mismatches, or roles/industries to avoid pitching without a strong story. Be direct, blunt, and honest over flattering. Include work authorization advisory and timeline verification (e.g. F-1/OPT/STEM timeline, H-1B lottery timing).
+5) 20+ SPONSORSHIP-FRIENDLY EMPLOYERS — provide at least 20 target employers known for actively hiring for these Primary and Secondary roles and having an established, verifiable track record of visa sponsorship (H-1B, Green Card, or explicit sponsorship).
+6) EXCLUDE ANY COMPANY the candidate has already worked at (per their resume).
+7) Present the companies split into two groups:
+   - Primary Fit (matching core primary roles)
+   - Secondary Fit (matching secondary/adjacent analytics or engineering roles)
+   Include for each: Company Name, Type/Industry, and detailed Sponsorship Notes (citing historical filings, sponsored titles, or hiring caveats).
+8) "Notes for Workflow" section flagging verification items before submitting (e.g., verifying filing history vs open postings, avoiding scam-prone staffing agencies, wage-weighted lottery tiers, dual-fit opportunities across both tiers, and reference sources).
+
+Respond strictly with a valid JSON object matching this schema:
+{
+  "candidateSnapshot": {
+    "totalYearsExperience": "string (e.g., 'About 4.5 years of full-time marketing analytics work...')",
+    "coreSpecialization": "string",
+    "targetSeniority": "string (e.g., 'Mid-level' or 'Senior-level')",
+    "seniorityRationale": "string (detailed explanation)"
+  },
+  "industriesAndDomains": {
+    "handsOnDomains": [
+      { "name": "string", "details": "string" }
+    ],
+    "functionalExperience": ["string"],
+    "unsupportedDomains": ["string"]
+  },
+  "roleTiers": [
+    {
+      "tier": "Primary",
+      "roles": ["string"],
+      "skillsToLeadWith": ["string"],
+      "bestFitIndustries": ["string"]
+    },
+    {
+      "tier": "Secondary",
+      "roles": ["string"],
+      "skillsToLeadWith": ["string"],
+      "bestFitIndustries": ["string"]
+    },
+    {
+      "tier": "Stretch",
+      "roles": ["string"],
+      "skillsToLeadWith": ["string"],
+      "bestFitIndustries": ["string"]
+    }
+  ],
+  "honestNotes": {
+    "weakSpotsAndRisks": ["string"],
+    "titlingMismatches": ["string"],
+    "rolesAndIndustriesToAvoid": ["string"],
+    "educationAndTiming": ["string"],
+    "workAuthorizationAdvisory": "string"
+  },
+  "primaryFitCompanies": [
+    {
+      "company": "string",
+      "type": "string",
+      "sponsorshipNotes": "string"
+    }
+  ],
+  "secondaryFitCompanies": [
+    {
+      "company": "string",
+      "type": "string",
+      "sponsorshipNotes": "string"
+    }
+  ],
+  "workflowNotes": {
+    "verifyBeforeSubmitting": ["string"],
+    "workAuthAndTiming": ["string"],
+    "titlingAndDualFit": ["string"],
+    "sources": [
+      { "name": "string", "url": "string" }
+    ]
+  },
+  "fullMarkdown": "string (Complete markdown report formatted for recruiter presentation)"
+}
+`;
+
+    let rawText = '';
+    let usageMetadata: any = null;
+
+    try {
+      const response = await client.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      });
+
+      rawText = response.text || '';
+      usageMetadata = response.usageMetadata;
+    } catch (err: any) {
+      console.error('[GeminiService] Resume Analysis error:', err);
+      throw new Error(`AI_ANALYSIS_FAILED: ${err.message || 'AI service call failed'}`);
+    }
+
+    if (!rawText.trim()) {
+      throw new Error('AI_ANALYSIS_FAILED: Empty response received from AI engine.');
+    }
+
+    const latencyMs = Date.now() - startTime;
+    const inputTokens = usageMetadata?.promptTokenCount || Math.ceil(prompt.length / 4);
+    const outputTokens = usageMetadata?.candidatesTokenCount || Math.ceil(rawText.length / 4);
+
+    let parsedResult: ResumeAnalysisResult;
+    try {
+      const cleaned = rawText
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+      parsedResult = JSON.parse(cleaned);
+    } catch (parseErr) {
+      console.error('[GeminiService] Failed to parse Resume Analysis JSON, attempting fallback recovery:', parseErr);
+      parsedResult = {
+        candidateSnapshot: {
+          totalYearsExperience: 'Determined from resume profile',
+          coreSpecialization: 'General Profile',
+          targetSeniority: 'Senior',
+          seniorityRationale: 'Standard senior-level default benchmark applied.',
+        },
+        industriesAndDomains: {
+          handsOnDomains: [],
+          functionalExperience: [],
+          unsupportedDomains: [],
+        },
+        roleTiers: [],
+        honestNotes: {
+          weakSpotsAndRisks: [],
+          titlingMismatches: [],
+          rolesAndIndustriesToAvoid: [],
+          educationAndTiming: [],
+          workAuthorizationAdvisory: 'Verify active work authorization prior to submission.',
+        },
+        primaryFitCompanies: [],
+        secondaryFitCompanies: [],
+        workflowNotes: {
+          verifyBeforeSubmitting: [],
+          workAuthAndTiming: [],
+          titlingAndDualFit: [],
+          sources: [],
+        },
+        fullMarkdown: rawText,
+      };
+    }
+
+    // Ensure fullMarkdown exists
+    if (!parsedResult.fullMarkdown || parsedResult.fullMarkdown.length < 50) {
+      parsedResult.fullMarkdown = this.buildResumeMarkdownReport(parsedResult, candidateName);
+    }
+
+    return {
+      result: parsedResult,
+      usage: {
+        inputTokens,
+        outputTokens,
+        latencyMs,
+        modelName,
+        isSimulated: false,
+      },
+    };
+  }
+
+  private static buildResumeMarkdownReport(res: ResumeAnalysisResult, candidateName?: string): string {
+    const lines: string[] = [];
+    lines.push(`# Recruiter Intelligence Report: ${candidateName || 'Candidate Profile'}\n`);
+    
+    // 1. Snapshot
+    lines.push(`## 1. CANDIDATE SNAPSHOT`);
+    lines.push(`- **Total Experience:** ${res.candidateSnapshot?.totalYearsExperience || 'N/A'}`);
+    lines.push(`- **Core Specialization:** ${res.candidateSnapshot?.coreSpecialization || 'N/A'}`);
+    lines.push(`- **Target Seniority:** ${res.candidateSnapshot?.targetSeniority || 'Senior'}`);
+    lines.push(`- **Seniority Rationale:** ${res.candidateSnapshot?.seniorityRationale || 'N/A'}\n`);
+
+    // 2. Industries
+    lines.push(`## 2. INDUSTRIES / DOMAINS`);
+    if (res.industriesAndDomains?.handsOnDomains?.length) {
+      lines.push(`### Hands-On Experience`);
+      res.industriesAndDomains.handsOnDomains.forEach((d) => {
+        lines.push(`- **${d.name}:** ${d.details}`);
+      });
+    }
+    if (res.industriesAndDomains?.functionalExperience?.length) {
+      lines.push(`### Functional Cross-Industry Experience`);
+      res.industriesAndDomains.functionalExperience.forEach((f) => lines.push(`- ${f}`));
+    }
+    if (res.industriesAndDomains?.unsupportedDomains?.length) {
+      lines.push(`### Domains Not In Resume (Do Not Pitch)`);
+      res.industriesAndDomains.unsupportedDomains.forEach((u) => lines.push(`- ⚠️ ${u}`));
+    }
+    lines.push('');
+
+    // 3. Role Tiers
+    lines.push(`## 3. PRIMARY / SECONDARY / STRETCH ROLES`);
+    lines.push(`| Tier | Roles | Skills to Lead With | Best-Fit Industries |`);
+    lines.push(`| :--- | :--- | :--- | :--- |`);
+    (res.roleTiers || []).forEach((tier) => {
+      lines.push(`| **${tier.tier}** | ${tier.roles?.join(', ') || ''} | ${tier.skillsToLeadWith?.join(', ') || ''} | ${tier.bestFitIndustries?.join(', ') || ''} |`);
+    });
+    lines.push('');
+
+    // 4. Honest Notes
+    lines.push(`## 4. HONEST NOTES FOR MY TEAM`);
+    if (res.honestNotes?.weakSpotsAndRisks?.length) {
+      lines.push(`### Weak Spots & Overselling Risks`);
+      res.honestNotes.weakSpotsAndRisks.forEach((w) => lines.push(`- ${w}`));
+    }
+    if (res.honestNotes?.titlingMismatches?.length) {
+      lines.push(`### Titling Mismatches`);
+      res.honestNotes.titlingMismatches.forEach((t) => lines.push(`- ${t}`));
+    }
+    if (res.honestNotes?.rolesAndIndustriesToAvoid?.length) {
+      lines.push(`### Roles & Industries to Avoid`);
+      res.honestNotes.rolesAndIndustriesToAvoid.forEach((r) => lines.push(`- ${r}`));
+    }
+    if (res.honestNotes?.educationAndTiming?.length) {
+      lines.push(`### Education & Experience Timing`);
+      res.honestNotes.educationAndTiming.forEach((e) => lines.push(`- ${e}`));
+    }
+    if (res.honestNotes?.workAuthorizationAdvisory) {
+      lines.push(`### Work Authorization Advisory`);
+      lines.push(`${res.honestNotes.workAuthorizationAdvisory}\n`);
+    }
+
+    // 7. Companies
+    lines.push(`## 7. TARGET COMPANIES (SPONSORSHIP-FRIENDLY)`);
+    lines.push(`### Primary Fit Companies`);
+    lines.push(`| Company | Type | Sponsorship Notes |`);
+    lines.push(`| :--- | :--- | :--- |`);
+    (res.primaryFitCompanies || []).forEach((c) => {
+      lines.push(`| **${c.company}** | ${c.type} | ${c.sponsorshipNotes} |`);
+    });
+    lines.push('');
+
+    lines.push(`### Secondary Fit Companies`);
+    lines.push(`| Company | Type | Sponsorship Notes |`);
+    lines.push(`| :--- | :--- | :--- |`);
+    (res.secondaryFitCompanies || []).forEach((c) => {
+      lines.push(`| **${c.company}** | ${c.type} | ${c.sponsorshipNotes} |`);
+    });
+    lines.push('');
+
+    // 8. Workflow Notes
+    lines.push(`## 8. NOTES FOR WORKFLOW`);
+    if (res.workflowNotes?.verifyBeforeSubmitting?.length) {
+      lines.push(`### Verify Before Submitting`);
+      res.workflowNotes.verifyBeforeSubmitting.forEach((v) => lines.push(`- ${v}`));
+    }
+    if (res.workflowNotes?.workAuthAndTiming?.length) {
+      lines.push(`### Work Authorization & Timing`);
+      res.workflowNotes.workAuthAndTiming.forEach((w) => lines.push(`- ${w}`));
+    }
+    if (res.workflowNotes?.titlingAndDualFit?.length) {
+      lines.push(`### Titling & Dual-Fit Strategy`);
+      res.workflowNotes.titlingAndDualFit.forEach((d) => lines.push(`- ${d}`));
+    }
+
+    return lines.join('\n');
   }
 }

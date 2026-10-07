@@ -3,16 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import { apiRequest } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
-import { FileCode2, Save, Sparkles, Check, Info, RefreshCw } from 'lucide-react';
+import { FileCode2, Save, Sparkles, Check, RefreshCw } from 'lucide-react';
 
 const VARIABLE_TOKENS = [
   { token: '{{candidate_name}}', desc: 'Candidate Full Name' },
   { token: '{{candidate_title}}', desc: 'Primary Job Title' },
-  { token: '{{visa_status}}', desc: 'Visa Status ENUM (e.g. H-1B, US Citizen)' },
-  { token: '{{clearance}}', desc: 'Security Clearance ENUM' },
-  { token: '{{work_preference}}', desc: 'Work Preference (Remote, Hybrid, On-Site)' },
-  { token: '{{candidate_resume}}', desc: 'Raw Candidate Resume Text' },
-  { token: '{{jd_text}}', desc: 'Scraped Job Description' },
+  { token: '{{visa_status}}', desc: 'Visa Status' },
+  { token: '{{clearance}}', desc: 'Security Clearance' },
+  { token: '{{work_preference}}', desc: 'Work Preference' },
+  { token: '{{candidate_resume}}', desc: 'Candidate Resume' },
+  { token: '{{jd_text}}', desc: 'Job Description' },
 ];
 
 export default function GlobalPromptsPage() {
@@ -67,7 +67,7 @@ export default function GlobalPromptsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Global Evaluation Prompt</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Platform-wide fallback prompt template used when an agency does not specify a custom evaluation prompt.
+            Default evaluation prompt template for candidate job matching.
           </p>
         </div>
 
@@ -90,34 +90,12 @@ export default function GlobalPromptsPage() {
         </button>
       </div>
 
-      {/* Waterfall Hierarchy Banner */}
-      <div className="rounded-2xl border border-indigo-500/20 bg-indigo-950/20 p-4 text-xs text-indigo-300 backdrop-blur">
-        <div className="flex items-center gap-2 font-bold text-indigo-200">
-          <Info className="h-4 w-4 text-indigo-400" />
-          <span>Dynamic Waterfall Prompting Engine Hierarchy</span>
-        </div>
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 text-slate-300">
-          <div className="rounded-lg border border-indigo-500/20 bg-slate-950/60 p-2.5">
-            <span className="font-bold text-white">Priority 1: Agency Custom Prompt</span>
-            <p className="mt-1 text-[11px] text-slate-400">
-              If an organization configures its own `custom_eval_prompt`, it takes immediate precedence.
-            </p>
-          </div>
-          <div className="rounded-lg border border-indigo-500/20 bg-slate-950/60 p-2.5">
-            <span className="font-bold text-white">Priority 2: Global Fallback (This Template)</span>
-            <p className="mt-1 text-[11px] text-slate-400">
-              If an agency prompt is null or empty, the engine falls back to this platform template.
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* Available Variable Tokens */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 backdrop-blur-xl">
         <div className="mb-2.5 flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-indigo-400" />
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-            Available Hydration Tokens (Click to append)
+            Prompt Variables
           </h2>
         </div>
         <div className="flex flex-wrap gap-2">

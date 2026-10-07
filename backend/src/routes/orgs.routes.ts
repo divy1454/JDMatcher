@@ -3,14 +3,14 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { organizations, users, tokenConsumptionLedger, matchedJds } from '../db/schema.js';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
 import { BillingService } from '../services/billingService.js';
 
 const createOrgSchema = z.object({
   name: z.string().min(2),
   slug: z.string().min(2).regex(/^[a-z0-9-]+$/, 'Slug must be URL-safe (lowercase, numbers, hyphens)'),
-  securityDepositLimit: z.number().positive().default(500),
+  securityDepositLimit: z.preprocess((val) => (val !== undefined && val !== null ? Number(val) : 500), z.number().min(0.01)).default(500),
   profitMultiplier: z.number().min(1).default(4.0),
   adminEmail: z.string().email(),
   adminFullName: z.string().min(2),
@@ -18,7 +18,7 @@ const createOrgSchema = z.object({
 });
 
 const updateBillingSchema = z.object({
-  securityDepositLimit: z.number().positive().optional(),
+  securityDepositLimit: z.preprocess((val) => (val !== undefined && val !== null ? Number(val) : undefined), z.number().min(0.01).optional()),
   profitMultiplier: z.number().min(1).optional(),
   isActive: z.boolean().optional(),
 });
@@ -46,6 +46,7 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           createdAt: organizations.createdAt,
           updatedAt: organizations.updatedAt,
           recruiterCount: sql<number>`(SELECT count(*) FROM users WHERE users.organization_id = organizations.id AND users.role = 'recruiter')`,
+          resumeAnalysisCount: sql<number>`(SELECT count(*) FROM token_consumption_ledger WHERE token_consumption_ledger.organization_id = organizations.id AND token_consumption_ledger.action_type = 'resume_analysis')::int`,
         })
         .from(organizations)
         .orderBy(desc(organizations.createdAt))
@@ -195,6 +196,8 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           recruiterName: users.fullName,
           recruiterEmail: users.email,
           totalEvaluations: sql<number>`count(${tokenConsumptionLedger.id})::int`,
+          regularEvalCount: sql<number>`count(case when ${tokenConsumptionLedger.actionType} != 'resume_analysis' then 1 else null end)::int`,
+          resumeAnalysisCount: sql<number>`count(case when ${tokenConsumptionLedger.actionType} = 'resume_analysis' then 1 else null end)::int`,
           totalTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.totalTokens}), 0)::int`,
           totalBilledCostUsd: sql<string>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::text`,
           lastEvaluationAt: sql<string>`max(${tokenConsumptionLedger.timestamp})::text`,
@@ -204,6 +207,19 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         .where(eq(tokenConsumptionLedger.organizationId, user.organizationId!))
         .groupBy(tokenConsumptionLedger.recruiterId, users.fullName, users.email)
         .orderBy(desc(sql`sum(${tokenConsumptionLedger.billedCostUsd})`));
+
+      const [orgResumeStats] = await db
+        .select({
+          totalAnalyses: sql<number>`count(*)::int`,
+          totalBilled: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+        })
+        .from(tokenConsumptionLedger)
+        .where(
+          and(
+            eq(tokenConsumptionLedger.organizationId, user.organizationId!),
+            eq(tokenConsumptionLedger.actionType, 'resume_analysis')
+          )
+        );
 
       const limit = parseFloat(org.securityDepositLimit);
       const billed = parseFloat(org.totalBilledAmount);
@@ -221,6 +237,8 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           remainingDeposit,
           usagePercentage,
           isLocked: billed >= limit,
+          resumeAnalysisCount: orgResumeStats?.totalAnalyses || 0,
+          resumeAnalysisBilledAmount: Number((orgResumeStats?.totalBilled || 0).toFixed(4)),
         },
         recruiterConsumption,
       });

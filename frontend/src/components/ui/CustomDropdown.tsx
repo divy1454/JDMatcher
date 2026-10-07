@@ -81,7 +81,7 @@ export function CustomDropdown({
   return (
     <div
       ref={containerRef}
-      className={`relative inline-block w-full select-none ${className}`}
+      className={`relative inline-block w-full select-none ${isOpen ? 'z-50' : 'z-auto'} ${className}`}
     >
       {/* Trigger Button */}
       <button
@@ -92,8 +92,8 @@ export function CustomDropdown({
         aria-expanded={isOpen}
         className={`group relative flex w-full items-center justify-between gap-2 rounded-xl border transition-all duration-200 outline-none backdrop-blur-xl ${
           isOpen
-            ? 'border-indigo-500 bg-slate-900/90 shadow-lg shadow-indigo-500/10 ring-2 ring-indigo-500/20'
-            : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900/80 hover:shadow-md'
+            ? 'border-indigo-500 bg-white dark:bg-slate-900/90 shadow-lg shadow-indigo-500/10 ring-2 ring-indigo-500/20'
+            : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/80 hover:shadow-sm'
         } ${
           isSmall ? 'py-1.5 px-2.5 text-xs' : 'py-2.5 px-3.5 text-xs sm:text-sm'
         } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${buttonClassName}`}
@@ -102,7 +102,7 @@ export function CustomDropdown({
           {icon && (
             <span
               className={`shrink-0 transition-colors ${
-                isOpen ? 'text-indigo-400' : 'text-slate-400 group-hover:text-slate-300'
+                isOpen ? 'text-indigo-500 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300'
               }`}
             >
               {icon}
@@ -116,13 +116,13 @@ export function CustomDropdown({
               )}
               <span
                 className={`truncate font-medium ${
-                  selectedOption.color || 'text-slate-200'
+                  selectedOption.color || 'text-slate-800 dark:text-slate-200'
                 }`}
               >
                 {selectedOption.label}
               </span>
               {selectedOption.badge && (
-                <span className="shrink-0 rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-300 border border-indigo-500/20">
+                <span className="shrink-0 rounded-md bg-indigo-50 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
                   {selectedOption.badge}
                 </span>
               )}
@@ -133,9 +133,9 @@ export function CustomDropdown({
         </div>
 
         <ChevronDown
-          className={`shrink-0 text-slate-400 transition-transform duration-200 group-hover:text-slate-300 ${
+          className={`shrink-0 text-slate-400 transition-transform duration-200 group-hover:text-slate-600 dark:group-hover:text-slate-300 ${
             isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4'
-          } ${isOpen ? 'rotate-180 text-indigo-400' : ''}`}
+          } ${isOpen ? 'rotate-180 text-indigo-500 dark:text-indigo-400' : ''}`}
         />
       </button>
 
@@ -143,12 +143,12 @@ export function CustomDropdown({
       {isOpen && (
         <div
           role="listbox"
-          className={`absolute left-0 z-50 mt-1.5 w-full min-w-[200px] overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-950/95 p-1.5 shadow-2xl shadow-black/80 backdrop-blur-2xl ring-1 ring-white/10 animate-in fade-in-0 zoom-in-95 duration-150 ${menuClassName}`}
+          className={`absolute left-0 z-50 mt-1.5 w-full min-w-[200px] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-950/95 p-1.5 shadow-xl dark:shadow-2xl shadow-slate-900/10 dark:shadow-black/80 backdrop-blur-2xl ring-1 ring-slate-900/5 dark:ring-white/10 animate-in fade-in-0 zoom-in-95 duration-150 ${menuClassName}`}
           style={{ maxHeight: '280px' }}
         >
           <div className="overflow-y-auto max-h-[260px] space-y-0.5 pr-0.5 custom-dropdown-scroll">
             {options.length === 0 ? (
-              <div className="px-3 py-2 text-center text-xs text-slate-400">
+              <div className="px-3 py-2 text-center text-xs text-slate-500 dark:text-slate-400">
                 No options available
               </div>
             ) : (
@@ -162,8 +162,8 @@ export function CustomDropdown({
                     onClick={() => handleSelect(opt.value)}
                     className={`group/opt flex cursor-pointer items-center justify-between gap-2.5 rounded-xl px-3 py-2 text-xs sm:text-sm transition-all duration-150 ${
                       isSelected
-                        ? 'bg-indigo-600/20 font-semibold text-white border border-indigo-500/30 shadow-sm'
-                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                        ? 'bg-indigo-50 dark:bg-indigo-600/20 font-semibold text-indigo-700 dark:text-white border border-indigo-200 dark:border-indigo-500/30 shadow-sm'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
@@ -176,19 +176,19 @@ export function CustomDropdown({
                         <div className="flex items-center gap-2">
                           <span
                             className={`truncate ${
-                              isSelected ? 'text-white' : opt.color || 'text-slate-200'
+                              isSelected ? 'text-indigo-700 dark:text-white' : opt.color || 'text-slate-800 dark:text-slate-200'
                             }`}
                           >
                             {opt.label}
                           </span>
                           {opt.badge && (
-                            <span className="shrink-0 rounded-md bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-300 border border-indigo-500/20">
+                            <span className="shrink-0 rounded-md bg-indigo-50 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
                               {opt.badge}
                             </span>
                           )}
                         </div>
                         {opt.sublabel && (
-                          <span className="truncate text-[11px] text-slate-400">
+                          <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
                             {opt.sublabel}
                           </span>
                         )}
@@ -196,7 +196,7 @@ export function CustomDropdown({
                     </div>
 
                     {isSelected && (
-                      <Check className="h-4 w-4 shrink-0 text-indigo-400" />
+                      <Check className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
                     )}
                   </div>
                 );

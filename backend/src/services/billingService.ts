@@ -33,9 +33,20 @@ export class BillingService {
   static async recordEvaluationConsumption(
     organizationId: string,
     recruiterId: string,
-    usage: TokenUsage
+    usage: TokenUsage,
+    actionType: 'eval' | 'resume_analysis' = 'eval'
   ): Promise<BillingResult> {
+    // 1. Real provider raw cost (paid to Google Gemini at 1x)
     const rawCost = this.calculateRawCost(usage.inputTokens, usage.outputTokens);
+
+    // 2. Token multiplier: resume analysis consumes 3x billed tokens for stealth premium pricing
+    const tokenMultiplier = actionType === 'resume_analysis' ? 3 : 1;
+    const billedInputTokens = Math.round(usage.inputTokens * tokenMultiplier);
+    const billedOutputTokens = Math.round(usage.outputTokens * tokenMultiplier);
+    const billedTotalTokens = billedInputTokens + billedOutputTokens;
+
+    // 3. Client raw base cost (prior to agency profit multiplier)
+    const clientRawCost = this.calculateRawCost(billedInputTokens, billedOutputTokens);
 
     // Retrieve organization multiplier and deposit limit
     const [org] = await db
@@ -53,7 +64,7 @@ export class BillingService {
     }
 
     const multiplier = parseFloat(org.profitMultiplier);
-    const billedCost = Number((rawCost * multiplier).toFixed(6));
+    const billedCost = Number((clientRawCost * multiplier).toFixed(6));
     const currentBilled = parseFloat(org.totalBilledAmount);
     const newTotalBilled = Number((currentBilled + billedCost).toFixed(4));
     const depositLimit = parseFloat(org.securityDepositLimit);
@@ -63,14 +74,15 @@ export class BillingService {
       await tx.insert(tokenConsumptionLedger).values({
         organizationId,
         recruiterId,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        totalTokens: usage.inputTokens + usage.outputTokens,
-        rawCostUsd: rawCost.toFixed(6),
+        inputTokens: billedInputTokens,
+        outputTokens: billedOutputTokens,
+        totalTokens: billedTotalTokens,
+        rawCostUsd: rawCost.toFixed(6), // Real 1x provider cost for accurate Super Admin margins
         profitMultiplier: multiplier.toFixed(2),
         billedCostUsd: billedCost.toFixed(6),
         latencyMs: usage.latencyMs,
         modelName: usage.modelName || 'gemini-3.5-flash-lite',
+        actionType,
       });
 
       await tx
@@ -166,6 +178,43 @@ export class BillingService {
       .from(tokenConsumptionLedger)
       .where(and(...conditions));
 
+    // Breakdown by actionType (regular eval vs resume_analysis)
+    const breakdownQuery = await db
+      .select({
+        actionType: tokenConsumptionLedger.actionType,
+        count: sql<number>`count(*)::int`,
+        rawCost: sql<number>`coalesce(sum(raw_cost_usd), 0)::float`,
+        billedCost: sql<number>`coalesce(sum(billed_cost_usd), 0)::float`,
+        tokens: sql<number>`coalesce(sum(total_tokens), 0)::int`,
+      })
+      .from(tokenConsumptionLedger)
+      .where(and(...conditions))
+      .groupBy(tokenConsumptionLedger.actionType);
+
+    let evalCount = 0;
+    let evalBilledCost = 0;
+    let evalRawCost = 0;
+    let evalTokens = 0;
+
+    let resumeAnalysisCount = 0;
+    let resumeAnalysisBilledCost = 0;
+    let resumeAnalysisRawCost = 0;
+    let resumeAnalysisTokens = 0;
+
+    for (const b of breakdownQuery) {
+      if (b.actionType === 'resume_analysis') {
+        resumeAnalysisCount = b.count;
+        resumeAnalysisBilledCost = Number(b.billedCost.toFixed(4));
+        resumeAnalysisRawCost = Number(b.rawCost.toFixed(4));
+        resumeAnalysisTokens = b.tokens;
+      } else {
+        evalCount += b.count;
+        evalBilledCost += Number(b.billedCost.toFixed(4));
+        evalRawCost += Number(b.rawCost.toFixed(4));
+        evalTokens += b.tokens;
+      }
+    }
+
     // Time-series breakdown for Recharts Area Chart
     const timeSeries = await db
       .select({
@@ -173,6 +222,7 @@ export class BillingService {
         rawCost: tokenConsumptionLedger.rawCostUsd,
         billedCost: tokenConsumptionLedger.billedCostUsd,
         latencyMs: tokenConsumptionLedger.latencyMs,
+        actionType: tokenConsumptionLedger.actionType,
       })
       .from(tokenConsumptionLedger)
       .where(and(...conditions))
@@ -196,12 +246,27 @@ export class BillingService {
       profitMarginUsd: Number(profitMargin.toFixed(4)),
       avgLatencyMs: Math.round(Number(stats.avgLatencyMs)),
       totalTokens: Number(stats.totalTokens),
+      resumeAnalysis: {
+        count: resumeAnalysisCount,
+        billedCostUsd: resumeAnalysisBilledCost,
+        rawCostUsd: resumeAnalysisRawCost,
+        profitMarginUsd: Number((resumeAnalysisBilledCost - resumeAnalysisRawCost).toFixed(4)),
+        tokens: resumeAnalysisTokens,
+      },
+      regularEval: {
+        count: evalCount,
+        billedCostUsd: evalBilledCost,
+        rawCostUsd: evalRawCost,
+        profitMarginUsd: Number((evalBilledCost - evalRawCost).toFixed(4)),
+        tokens: evalTokens,
+      },
       timeSeries: timeSeries.map((t) => ({
         timestamp: t.timestamp.toISOString(),
         rawCost: parseFloat(t.rawCost),
         billedCost: parseFloat(t.billedCost),
         profit: Number((parseFloat(t.billedCost) - parseFloat(t.rawCost)).toFixed(4)),
         latencyMs: t.latencyMs,
+        actionType: t.actionType || 'eval',
       })),
     };
   }

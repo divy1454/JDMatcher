@@ -1,8 +1,8 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { candidates, matchedJds, users } from '../db/schema.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { candidates, matchedJds, users, resumeAnalyses, organizations, tokenConsumptionLedger } from '../db/schema.js';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { authGuard } from '../middleware/authGuard.js';
 import { deviceGuard } from '../middleware/deviceGuard.js';
 import { depositGuard } from '../middleware/depositGuard.js';
@@ -17,6 +17,15 @@ const evaluateSchema = z.object({
   jobTitle: z.string().optional(),
   jobUrl: z.string().optional(),
   companyOrClient: z.string().optional(),
+});
+
+const analyzeResumeSchema = z.object({
+  candidateId: z.string().uuid().optional(),
+  rawResumeText: z.string().min(50, 'Resume text must be at least 50 characters').optional(),
+  candidateName: z.string().optional(),
+  candidateTitle: z.string().optional(),
+}).refine((data) => !!(data.candidateId || data.rawResumeText), {
+  message: 'Either candidateId or rawResumeText must be provided',
 });
 
 const saveAppliedSchema = z.object({
@@ -351,8 +360,6 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         recruiterId?: string;
         verdict?: string;
       };
-      const limit = Math.min(Math.max(parseInt(query.limit || '100', 10) || 100, 1), 500);
-      const offset = Math.max(parseInt(query.offset || '0', 10) || 0, 0);
 
       const conditions = [eq(matchedJds.organizationId, user.organizationId!)];
 
@@ -371,7 +378,7 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         conditions.push(eq(matchedJds.verdict, query.verdict as any));
       }
 
-      const list = await db
+      const baseQuery = db
         .select({
           id: matchedJds.id,
           candidateId: matchedJds.candidateId,
@@ -391,11 +398,402 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         .leftJoin(candidates, eq(matchedJds.candidateId, candidates.id))
         .leftJoin(users, eq(matchedJds.recruiterId, users.id))
         .where(and(...conditions))
-        .orderBy(desc(matchedJds.appliedAt))
-        .limit(limit)
-        .offset(offset);
+        .orderBy(desc(matchedJds.appliedAt));
+
+      const hasExplicitLimit = query.limit !== undefined && query.limit !== 'all' && query.limit !== '0' && query.limit !== 'none';
+      const hasExplicitOffset = query.offset !== undefined && parseInt(query.offset, 10) > 0;
+
+      let list;
+      if (hasExplicitLimit || hasExplicitOffset) {
+        let dynamicQuery = baseQuery.$dynamic();
+        if (hasExplicitLimit) {
+          const limitNum = Math.max(parseInt(query.limit!, 10) || 100, 1);
+          dynamicQuery = dynamicQuery.limit(limitNum);
+        }
+        if (hasExplicitOffset) {
+          const offsetNum = Math.max(parseInt(query.offset!, 10) || 0, 0);
+          dynamicQuery = dynamicQuery.offset(offsetNum);
+        }
+        list = await dynamicQuery;
+      } else {
+        list = await baseQuery;
+      }
 
       return reply.send(list);
+    }
+  );
+
+  // POST /api/analyze/resume (Recruiter: Deep Resume Analysis & Sponsorship Research)
+  fastify.post(
+    '/resume',
+    { preHandler: [authGuard, deviceGuard, depositGuard] },
+    async (request, reply) => {
+      const user = request.user!;
+
+      // Requirement: Exclusively available to Recruiters
+      if (user.role !== 'recruiter') {
+        return reply.status(403).send({
+          error: 'ACCESS_DENIED',
+          message: 'The Resume Analyser is exclusively available to Recruiters.',
+        });
+      }
+
+      const parseResult = analyzeResumeSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parseResult.error.issues });
+      }
+
+      const { candidateId, rawResumeText, candidateName, candidateTitle } = parseResult.data;
+
+      let finalResumeText = rawResumeText || '';
+      let finalCandidateName = candidateName || 'Candidate';
+      let finalCandidateTitle = candidateTitle || '';
+      let finalCandidateId = candidateId || null;
+
+      if (candidateId) {
+        const [candidate] = await db
+          .select()
+          .from(candidates)
+          .where(
+            and(
+              eq(candidates.id, candidateId),
+              eq(candidates.organizationId, user.organizationId!),
+              eq(candidates.createdByRecruiterId, user.id)
+            )
+          )
+          .limit(1);
+
+        if (!candidate || !candidate.isActive) {
+          return reply.status(404).send({ error: 'NOT_FOUND', message: 'Candidate not found or access denied' });
+        }
+
+        finalResumeText = candidate.rawResumeText;
+        finalCandidateName = candidate.fullName;
+        finalCandidateTitle = candidate.primaryTitle;
+        finalCandidateId = candidate.id;
+      }
+
+      if (!finalResumeText || finalResumeText.trim().length < 50) {
+        return reply.status(400).send({
+          error: 'INVALID_RESUME',
+          message: 'Resume text is too short. Please provide a complete resume (at least 50 characters).',
+        });
+      }
+
+      // Execute AI Analysis via Gemini 3.5 Flash-Lite
+      let analysisResponse;
+      try {
+        analysisResponse = await GeminiService.analyzeResume(finalResumeText, finalCandidateName);
+      } catch (aiErr: any) {
+        request.log.error(aiErr, 'AI Resume Analysis failed');
+        return reply.status(502).send({
+          error: 'AI_ANALYSIS_FAILED',
+          message: aiErr.message || 'AI resume analysis failed. Please check AI key or service availability.',
+        });
+      }
+
+      // Record offline billing & telemetry (with stealth 3x token multiplier for resume analysis)
+      BillingService.recordEvaluationConsumption(
+        user.organizationId!,
+        user.id,
+        analysisResponse.usage,
+        'resume_analysis'
+      )
+        .then((billing) => {
+          telemetryService.broadcastEvaluation({
+            rawCostUsd: billing.rawCostUsd,
+            billedCostUsd: billing.billedCostUsd,
+            profitMarginUsd: Number((billing.billedCostUsd - billing.rawCostUsd).toFixed(6)),
+            latencyMs: analysisResponse.usage.latencyMs,
+            totalTokens: (analysisResponse.usage.inputTokens + analysisResponse.usage.outputTokens) * 3,
+          });
+        })
+        .catch((billingErr) => {
+          request.log.error(billingErr, 'Background billing ledger recording failed for resume analysis');
+        });
+
+      // Persist in resume_analyses table
+      let savedAnalysis;
+      try {
+        const [inserted] = await db
+          .insert(resumeAnalyses)
+          .values({
+            organizationId: user.organizationId!,
+            recruiterId: user.id,
+            candidateId: finalCandidateId,
+            candidateName: finalCandidateName,
+            candidateTitle: finalCandidateTitle,
+            rawResumeText: finalResumeText,
+            totalYearsExperience: analysisResponse.result.candidateSnapshot?.totalYearsExperience || null,
+            coreSpecialization: analysisResponse.result.candidateSnapshot?.coreSpecialization || null,
+            targetSeniority: analysisResponse.result.candidateSnapshot?.targetSeniority || null,
+            seniorityRationale: analysisResponse.result.candidateSnapshot?.seniorityRationale || null,
+            industriesAndDomains: analysisResponse.result.industriesAndDomains || {},
+            roleTiers: analysisResponse.result.roleTiers || [],
+            honestNotes: analysisResponse.result.honestNotes || {},
+            primaryFitCompanies: analysisResponse.result.primaryFitCompanies || [],
+            secondaryFitCompanies: analysisResponse.result.secondaryFitCompanies || [],
+            workflowNotes: analysisResponse.result.workflowNotes || {},
+            fullMarkdown: analysisResponse.result.fullMarkdown || null,
+          })
+          .returning();
+        savedAnalysis = inserted;
+      } catch (insertErr) {
+        request.log.error(insertErr, 'Failed to save resume analysis record');
+      }
+
+      return reply.send({
+        id: savedAnalysis?.id,
+        candidateId: finalCandidateId,
+        candidateName: finalCandidateName,
+        candidateTitle: finalCandidateTitle,
+        ...analysisResponse.result,
+        createdAt: savedAnalysis?.createdAt || new Date().toISOString(),
+      });
+    }
+  );
+
+  // GET /api/analyze/resume-history (Recruiter: List past resume analyses)
+  fastify.get(
+    '/resume-history',
+    { preHandler: [authGuard] },
+    async (request, reply) => {
+      const user = request.user!;
+      if (user.role !== 'recruiter') {
+        return reply.status(403).send({
+          error: 'ACCESS_DENIED',
+          message: 'Resume analysis history is exclusively available to Recruiters.',
+        });
+      }
+
+      const list = await db
+        .select({
+          id: resumeAnalyses.id,
+          candidateId: resumeAnalyses.candidateId,
+          candidateName: resumeAnalyses.candidateName,
+          candidateTitle: resumeAnalyses.candidateTitle,
+          totalYearsExperience: resumeAnalyses.totalYearsExperience,
+          coreSpecialization: resumeAnalyses.coreSpecialization,
+          targetSeniority: resumeAnalyses.targetSeniority,
+          createdAt: resumeAnalyses.createdAt,
+        })
+        .from(resumeAnalyses)
+        .where(
+          and(
+            eq(resumeAnalyses.organizationId, user.organizationId!),
+            eq(resumeAnalyses.recruiterId, user.id)
+          )
+        )
+        .orderBy(desc(resumeAnalyses.createdAt))
+        .limit(50);
+
+      return reply.send(list);
+    }
+  );
+
+  // GET /api/analyze/resume/:id (Recruiter: Get single resume analysis)
+  fastify.get(
+    '/resume/:id',
+    { preHandler: [authGuard] },
+    async (request, reply) => {
+      const user = request.user!;
+      if (user.role !== 'recruiter') {
+        return reply.status(403).send({
+          error: 'ACCESS_DENIED',
+          message: 'Resume analysis details are exclusively available to Recruiters.',
+        });
+      }
+
+      const { id } = request.params as { id: string };
+
+      const [item] = await db
+        .select()
+        .from(resumeAnalyses)
+        .where(
+          and(
+            eq(resumeAnalyses.id, id),
+            eq(resumeAnalyses.organizationId, user.organizationId!),
+            eq(resumeAnalyses.recruiterId, user.id)
+          )
+        )
+        .limit(1);
+
+      if (!item) {
+        return reply.status(404).send({ error: 'NOT_FOUND', message: 'Analysis not found' });
+      }
+
+      return reply.send({
+        id: item.id,
+        candidateId: item.candidateId,
+        candidateName: item.candidateName,
+        candidateTitle: item.candidateTitle,
+        rawResumeText: item.rawResumeText,
+        candidateSnapshot: {
+          totalYearsExperience: item.totalYearsExperience || '',
+          coreSpecialization: item.coreSpecialization || '',
+          targetSeniority: item.targetSeniority || '',
+          seniorityRationale: item.seniorityRationale || '',
+        },
+        industriesAndDomains: item.industriesAndDomains,
+        roleTiers: item.roleTiers,
+        honestNotes: item.honestNotes,
+        primaryFitCompanies: item.primaryFitCompanies,
+        secondaryFitCompanies: item.secondaryFitCompanies,
+        workflowNotes: item.workflowNotes,
+        fullMarkdown: item.fullMarkdown,
+        createdAt: item.createdAt,
+      });
+    }
+  );
+
+  // DELETE /api/analyze/resume/:id (Recruiter: Delete saved resume analysis)
+  fastify.delete(
+    '/resume/:id',
+    { preHandler: [authGuard] },
+    async (request, reply) => {
+      const user = request.user!;
+      if (user.role !== 'recruiter') {
+        return reply.status(403).send({
+          error: 'ACCESS_DENIED',
+          message: 'Resume analysis deletion is exclusively available to Recruiters.',
+        });
+      }
+
+      const { id } = request.params as { id: string };
+
+      const [deleted] = await db
+        .delete(resumeAnalyses)
+        .where(
+          and(
+            eq(resumeAnalyses.id, id),
+            eq(resumeAnalyses.organizationId, user.organizationId!),
+            eq(resumeAnalyses.recruiterId, user.id)
+          )
+        )
+        .returning({ id: resumeAnalyses.id });
+
+      if (!deleted) {
+        return reply.status(404).send({ error: 'NOT_FOUND', message: 'Analysis not found' });
+      }
+
+      return reply.send({ success: true, message: 'Analysis deleted successfully' });
+    }
+  );
+
+  // GET /api/analyze/resume-stats (Org Admin & Super Admin: View resume analysis stats & counts)
+  fastify.get(
+    '/resume-stats',
+    { preHandler: [authGuard] },
+    async (request, reply) => {
+      const user = request.user!;
+      if (user.role !== 'org_admin' && user.role !== 'super_admin') {
+        return reply.status(403).send({
+          error: 'ACCESS_DENIED',
+          message: 'Resume analysis statistics are available to Org Admins and Super Admins.',
+        });
+      }
+
+      if (user.role === 'org_admin') {
+        const orgId = user.organizationId!;
+
+        // 1. Total count of resume analyses from resumeAnalyses table
+        const [totalCountRow] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(resumeAnalyses)
+          .where(eq(resumeAnalyses.organizationId, orgId));
+
+        // 2. Ledger aggregates for resume_analysis
+        const [ledgerRow] = await db
+          .select({
+            totalTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.totalTokens}), 0)::int`,
+            billedCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+          })
+          .from(tokenConsumptionLedger)
+          .where(
+            and(
+              eq(tokenConsumptionLedger.organizationId, orgId),
+              eq(tokenConsumptionLedger.actionType, 'resume_analysis')
+            )
+          );
+
+        // 3. Per-recruiter breakdown in this agency
+        const recruiterBreakdown = await db
+          .select({
+            recruiterId: users.id,
+            recruiterName: users.fullName,
+            recruiterEmail: users.email,
+            analysisCount: sql<number>`count(${resumeAnalyses.id})::int`,
+          })
+          .from(users)
+          .leftJoin(
+            resumeAnalyses,
+            and(
+              eq(users.id, resumeAnalyses.recruiterId),
+              eq(resumeAnalyses.organizationId, orgId)
+            )
+          )
+          .where(
+            and(
+              eq(users.organizationId, orgId),
+              eq(users.role, 'recruiter')
+            )
+          )
+          .groupBy(users.id, users.fullName, users.email)
+          .orderBy(desc(sql`count(${resumeAnalyses.id})`));
+
+        return reply.send({
+          role: 'org_admin',
+          totalAnalyses: totalCountRow?.count || 0,
+          totalTokens: ledgerRow?.totalTokens || 0,
+          billedCostUsd: Number((ledgerRow?.billedCostUsd || 0).toFixed(4)),
+          recruiterBreakdown,
+        });
+      }
+
+      // Super Admin: platform-wide stats across all agencies
+      const [superTotalCountRow] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(resumeAnalyses);
+
+      const [superLedgerRow] = await db
+        .select({
+          totalTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.totalTokens}), 0)::int`,
+          billedCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+          rawCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.rawCostUsd}), 0)::float`,
+        })
+        .from(tokenConsumptionLedger)
+        .where(eq(tokenConsumptionLedger.actionType, 'resume_analysis'));
+
+      const orgBreakdown = await db
+        .select({
+          organizationId: organizations.id,
+          organizationName: organizations.name,
+          organizationSlug: organizations.slug,
+          analysisCount: sql<number>`(SELECT count(*) FROM resume_analyses WHERE resume_analyses.organization_id = organizations.id)::int`,
+          billedCostUsd: sql<number>`coalesce((SELECT sum(billed_cost_usd) FROM token_consumption_ledger WHERE token_consumption_ledger.organization_id = organizations.id AND token_consumption_ledger.action_type = 'resume_analysis'), 0)::float`,
+          rawCostUsd: sql<number>`coalesce((SELECT sum(raw_cost_usd) FROM token_consumption_ledger WHERE token_consumption_ledger.organization_id = organizations.id AND token_consumption_ledger.action_type = 'resume_analysis'), 0)::float`,
+          tokensConsumed: sql<number>`coalesce((SELECT sum(total_tokens) FROM token_consumption_ledger WHERE token_consumption_ledger.organization_id = organizations.id AND token_consumption_ledger.action_type = 'resume_analysis'), 0)::int`,
+        })
+        .from(organizations)
+        .orderBy(desc(sql`(SELECT count(*) FROM resume_analyses WHERE resume_analyses.organization_id = organizations.id)`));
+
+      const billed = Number((superLedgerRow?.billedCostUsd || 0).toFixed(4));
+      const raw = Number((superLedgerRow?.rawCostUsd || 0).toFixed(4));
+
+      return reply.send({
+        role: 'super_admin',
+        totalAnalyses: superTotalCountRow?.count || 0,
+        totalTokens: superLedgerRow?.totalTokens || 0,
+        billedCostUsd: billed,
+        rawCostUsd: raw,
+        profitMarginUsd: Number((billed - raw).toFixed(4)),
+        orgBreakdown: orgBreakdown.map((o) => ({
+          ...o,
+          billedCostUsd: Number(Number(o.billedCostUsd).toFixed(4)),
+          rawCostUsd: Number(Number(o.rawCostUsd).toFixed(4)),
+          profitMarginUsd: Number((Number(o.billedCostUsd) - Number(o.rawCostUsd)).toFixed(4)),
+        })),
+      });
     }
   );
 };
