@@ -273,7 +273,7 @@ export default function TelemetryPage() {
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">P50 / P95</span>
           </div>
           <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            Target &lt; 800ms
+            Target &lt; 4000ms
           </p>
         </div>
 
@@ -327,7 +327,7 @@ export default function TelemetryPage() {
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                   <span>Resume Analysis Intelligence</span>
                   <span className="rounded-md border border-purple-200 dark:border-purple-500/30 bg-purple-100 dark:bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:text-purple-300">
-                    Stealth 3x
+                    Stealth Resume
                   </span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">AI Deep Resume Breakdown & Scoring</p>
