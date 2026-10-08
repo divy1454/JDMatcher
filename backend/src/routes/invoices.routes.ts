@@ -85,6 +85,21 @@ export async function invoicesRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // 3a. GET /api/invoices/admin/summary (Super Admin: unified volume breakdown reconciling invoiced vs unbilled)
+  fastify.get(
+    '/admin/summary',
+    { preHandler: [authGuard, requireRole(['super_admin'])] },
+    async (request, reply) => {
+      try {
+        const summary = await InvoiceService.getAdminInvoiceSummary();
+        return reply.send(summary);
+      } catch (err: any) {
+        request.log.error(err, 'Failed to fetch invoice summary');
+        return reply.status(500).send({ error: 'SERVER_ERROR', message: err.message });
+      }
+    }
+  );
+
   // 3b. GET /api/invoices/admin/agency-consumption (Super Admin: get exact agency consumption & live online USD to INR rate)
   fastify.get(
     '/admin/agency-consumption',

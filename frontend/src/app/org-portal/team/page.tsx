@@ -15,8 +15,9 @@ import {
   AlertTriangle,
   X,
   ShieldAlert,
-  ChevronRight,
   ShieldCheck,
+  RefreshCw,
+  Filter,
 } from 'lucide-react';
 
 interface RecruiterItem {
@@ -52,8 +53,12 @@ interface UnlockRequestItem {
 export default function RecruiterTeamPage() {
   const [team, setTeam] = useState<RecruiterItem[]>([]);
   const [unlockRequests, setUnlockRequests] = useState<UnlockRequestItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const [hardwareFilter, setHardwareFilter] = useState<'ALL' | 'BOUND' | 'UNBOUND' | 'COOLDOWN'>('ALL');
+  const [requestFilter, setRequestFilter] = useState<'ALL' | 'ORG_ADMIN' | 'SUPER_ADMIN'>('ALL');
+  const [requestSearch, setRequestSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [msg, setMsg] = useState('');
@@ -67,7 +72,13 @@ export default function RecruiterTeamPage() {
     password: '',
   });
 
-  const fetchData = async () => {
+  const fetchData = async (isSilent = false) => {
+    if (!isSilent && team.length === 0) {
+      setIsInitialLoading(true);
+    } else if (!isSilent) {
+      setIsRefreshing(true);
+    }
+
     try {
       const [teamData, requestsData] = await Promise.all([
         apiRequest('/recruiters'),
@@ -78,12 +89,19 @@ export default function RecruiterTeamPage() {
     } catch (err) {
       console.error('Failed to load team data:', err);
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchData();
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchData(true);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleCreateRecruiter = async (e: React.FormEvent) => {
@@ -184,11 +202,41 @@ export default function RecruiterTeamPage() {
 
   const pendingRequests = unlockRequests.filter((r) => r.status === 'pending');
 
-  const filtered = team.filter(
-    (t) =>
-      t.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      t.email.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = team.filter((t) => {
+    const q = search.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      t.fullName.toLowerCase().includes(q) ||
+      t.email.toLowerCase().includes(q);
+
+    if (!matchesSearch) return false;
+
+    const isBound = Boolean(t.deviceId);
+    const now = new Date();
+    const inCooldown = Boolean(t.deviceSwitchAllowedAfter && now < new Date(t.deviceSwitchAllowedAfter));
+
+    if (hardwareFilter === 'BOUND' && !isBound) return false;
+    if (hardwareFilter === 'UNBOUND' && isBound) return false;
+    if (hardwareFilter === 'COOLDOWN' && !inCooldown) return false;
+
+    return true;
+  });
+
+  const filteredRequests = pendingRequests.filter((r) => {
+    const q = requestSearch.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      r.recruiterName.toLowerCase().includes(q) ||
+      r.recruiterEmail.toLowerCase().includes(q) ||
+      (r.reason && r.reason.toLowerCase().includes(q));
+
+    if (!matchesSearch) return false;
+
+    if (requestFilter === 'ORG_ADMIN' && r.approvalTier !== 'org_admin') return false;
+    if (requestFilter === 'SUPER_ADMIN' && r.approvalTier !== 'super_admin') return false;
+
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -206,13 +254,24 @@ export default function RecruiterTeamPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-600/30 transition hover:from-violet-500 hover:to-indigo-500"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Provision Recruiter Seat</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => fetchData(false)}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            title="Auto-refreshes every 10s. Click to refresh live."
+          >
+            <RefreshCw className={`h-3.5 w-3.5 text-indigo-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Updating...' : 'Live Sync'}</span>
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-600/30 transition hover:from-violet-500 hover:to-indigo-500"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Provision Recruiter Seat</span>
+          </button>
+        </div>
       </div>
 
       {msg && (
@@ -282,16 +341,65 @@ export default function RecruiterTeamPage() {
 
       {activeTab === 'team' ? (
         <>
-          {/* Search */}
-          <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2 shadow-xs backdrop-blur">
-            <Search className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search recruiters by name or email..."
-              className="ml-2 w-full bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none"
-            />
+          {/* Search & Hardware Filter Bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search recruiters by name or email..."
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-violet-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 p-1 text-xs w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setHardwareFilter('ALL')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  hardwareFilter === 'ALL'
+                    ? 'bg-violet-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                All Seats ({team.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setHardwareFilter('BOUND')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  hardwareFilter === 'BOUND'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Bound Machine
+              </button>
+              <button
+                type="button"
+                onClick={() => setHardwareFilter('UNBOUND')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  hardwareFilter === 'UNBOUND'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Unbound / Open
+              </button>
+              <button
+                type="button"
+                onClick={() => setHardwareFilter('COOLDOWN')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  hardwareFilter === 'COOLDOWN'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                In Cooldown
+              </button>
+            </div>
           </div>
 
           {/* Team Table */}
@@ -398,20 +506,70 @@ export default function RecruiterTeamPage() {
         </>
       ) : (
         /* Machine Unlock Requests Tab */
-        <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs backdrop-blur-xl">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/40 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <tr>
-                <th className="px-6 py-4">Recruiter</th>
-                <th className="px-6 py-4">Reason / Notes</th>
-                <th className="px-6 py-4">Approval Level</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Submitted</th>
-                <th className="px-6 py-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 text-slate-700 dark:text-slate-300">
-              {unlockRequests.map((req) => {
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={requestSearch}
+                onChange={(e) => setRequestSearch(e.target.value)}
+                placeholder="Search requests by recruiter or reason..."
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-violet-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 p-1 text-xs w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setRequestFilter('ALL')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  requestFilter === 'ALL'
+                    ? 'bg-violet-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                All Requests ({pendingRequests.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRequestFilter('ORG_ADMIN')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  requestFilter === 'ORG_ADMIN'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Org Admin Level
+              </button>
+              <button
+                type="button"
+                onClick={() => setRequestFilter('SUPER_ADMIN')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  requestFilter === 'SUPER_ADMIN'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Super Admin Level
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs backdrop-blur-xl">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/40 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                <tr>
+                  <th className="px-6 py-4">Recruiter</th>
+                  <th className="px-6 py-4">Reason / Notes</th>
+                  <th className="px-6 py-4">Approval Level</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4">Submitted</th>
+                  <th className="px-6 py-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/80 text-slate-700 dark:text-slate-300">
+                {filteredRequests.map((req) => {
                 const isSuperAdminTier = req.approvalTier === 'super_admin';
                 const isPending = req.status === 'pending';
 
@@ -511,6 +669,7 @@ export default function RecruiterTeamPage() {
             </tbody>
           </table>
         </div>
+      </div>
       )}
 
       {/* Provision Recruiter Modal */}

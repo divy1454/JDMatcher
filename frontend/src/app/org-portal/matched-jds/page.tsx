@@ -23,6 +23,10 @@ import {
   Sparkles,
   RotateCcw,
   Filter,
+  RefreshCw,
+  Gauge,
+  Calendar,
+  ArrowUpDown,
 } from 'lucide-react';
 import { CustomDropdown, DropdownOption } from '@/components/ui/CustomDropdown';
 
@@ -82,19 +86,28 @@ export default function OrgMatchedJdsPage() {
   const [items, setItems] = useState<MatchedJdItem[]>([]);
   const [candidates, setCandidates] = useState<CandidateOption[]>([]);
   const [recruiters, setRecruiters] = useState<RecruiterOption[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
   // Filters
   const [search, setSearch] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState('');
   const [selectedRecruiter, setSelectedRecruiter] = useState('');
   const [verdictFilter, setVerdictFilter] = useState('');
+  const [scoreFilter, setScoreFilter] = useState('');
+  const [timeframeFilter, setTimeframeFilter] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedJdId, setCopiedJdId] = useState<string | null>(null);
   const [copiedReasoningId, setCopiedReasoningId] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = async (silent = false) => {
+    if (!silent) {
+      if (items.length === 0) setIsInitialLoading(true);
+      else setIsRefreshing(true);
+    }
     try {
       const [jdsData, candidatesData, recruitersData] = await Promise.all([
         apiRequest('/analyze/matched-jds?limit=all'),
@@ -104,15 +117,21 @@ export default function OrgMatchedJdsPage() {
       if (Array.isArray(jdsData)) setItems(jdsData);
       if (Array.isArray(candidatesData)) setCandidates(candidatesData);
       if (Array.isArray(recruitersData)) setRecruiters(recruitersData);
+      setLastSynced(new Date());
     } catch (err) {
       console.error('Failed to load matched JDs:', err);
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleCopyText = async (text: string, id: string, type: 'jd' | 'reasoning') => {
@@ -130,47 +149,14 @@ export default function OrgMatchedJdsPage() {
     }
   };
 
-  const handleExportExcel = () => {
-    if (filtered.length === 0) return;
-
-    const exportRows = filtered.map((item) => ({
-      'Role / Position': getDisplayRole(item.jobTitle, item.rawJdText),
-      'Company / Client': getDisplayCompany(item.companyOrClient, item.rawJdText),
-      'Candidate': item.candidateName || 'Bench Candidate',
-      'Recruiter': item.recruiterName || 'Agency Recruiter',
-      'Verdict': item.verdict,
-      'Match Score (%)': item.matchScore,
-      'Date Evaluated': formatDate(item.appliedAt),
-      'Job URL': item.jobUrl || 'N/A',
-      'AI Evaluation Reasoning': item.matchReasoning,
-      'Full Job Description': item.rawJdText,
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    worksheet['!cols'] = [
-      { wch: 30 }, // Role
-      { wch: 25 }, // Company
-      { wch: 22 }, // Candidate
-      { wch: 20 }, // Recruiter
-      { wch: 10 }, // Verdict
-      { wch: 15 }, // Match Score
-      { wch: 20 }, // Date
-      { wch: 35 }, // URL
-      { wch: 60 }, // Reasoning
-      { wch: 70 }, // Raw JD
-    ];
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Matched JDs');
-    const today = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(workbook, `Agency_Matched_JDs_${today}.xlsx`);
-  };
-
   const resetFilters = () => {
     setSearch('');
     setSelectedCandidate('');
     setSelectedRecruiter('');
     setVerdictFilter('');
+    setScoreFilter('');
+    setTimeframeFilter('');
+    setSortBy('newest');
   };
 
   // Compile unique candidate map
@@ -213,38 +199,134 @@ export default function OrgMatchedJdsPage() {
     { value: 'SKIP', label: 'SKIP Only', badge: 'Skipped', color: 'text-rose-300' },
   ];
 
-  const filtered = items.filter((item) => {
-    const role = getDisplayRole(item.jobTitle, item.rawJdText).toLowerCase();
-    const company = getDisplayCompany(item.companyOrClient, item.rawJdText).toLowerCase();
-    const candidate = (item.candidateName || '').toLowerCase();
-    const recruiter = (item.recruiterName || '').toLowerCase();
-    const rawJd = (item.rawJdText || '').toLowerCase();
-    const q = search.toLowerCase();
+  const scoreDropdownOptions: DropdownOption[] = [
+    { value: '', label: 'All Scores' },
+    { value: 'high', label: 'Strong Match (≥80%)', badge: '≥80%', color: 'text-emerald-400' },
+    { value: 'moderate', label: 'Moderate Match (50–79%)', badge: '50-79%', color: 'text-amber-400' },
+    { value: 'low', label: 'Low Match (<50%)', badge: '<50%', color: 'text-rose-400' },
+  ];
 
-    const matchesSearch =
-      !q ||
-      role.includes(q) ||
-      company.includes(q) ||
-      candidate.includes(q) ||
-      recruiter.includes(q) ||
-      rawJd.includes(q);
+  const timeframeDropdownOptions: DropdownOption[] = [
+    { value: '', label: 'All Dates' },
+    { value: 'today', label: 'Evaluated Today' },
+    { value: '7d', label: 'Past 7 Days' },
+    { value: '30d', label: 'Past 30 Days' },
+  ];
 
-    const matchesCandidate =
-      !selectedCandidate ||
-      item.candidateId === selectedCandidate ||
-      item.candidateName === selectedCandidate;
+  const sortDropdownOptions: DropdownOption[] = [
+    { value: 'newest', label: 'Sort: Newest First' },
+    { value: 'oldest', label: 'Sort: Oldest First' },
+    { value: 'score-desc', label: 'Sort: Highest Score' },
+    { value: 'score-asc', label: 'Sort: Lowest Score' },
+  ];
 
-    const matchesRecruiter =
-      !selectedRecruiter ||
-      item.recruiterId === selectedRecruiter ||
-      item.recruiterName === selectedRecruiter;
+  const filtered = items
+    .filter((item) => {
+      const role = getDisplayRole(item.jobTitle, item.rawJdText).toLowerCase();
+      const company = getDisplayCompany(item.companyOrClient, item.rawJdText).toLowerCase();
+      const candidate = (item.candidateName || '').toLowerCase();
+      const recruiter = (item.recruiterName || '').toLowerCase();
+      const rawJd = (item.rawJdText || '').toLowerCase();
+      const q = search.toLowerCase();
 
-    const matchesVerdict = !verdictFilter || item.verdict === verdictFilter;
+      const matchesSearch =
+        !q ||
+        role.includes(q) ||
+        company.includes(q) ||
+        candidate.includes(q) ||
+        recruiter.includes(q) ||
+        rawJd.includes(q);
 
-    return matchesSearch && matchesCandidate && matchesRecruiter && matchesVerdict;
-  });
+      const matchesCandidate =
+        !selectedCandidate ||
+        item.candidateId === selectedCandidate ||
+        item.candidateName === selectedCandidate;
 
-  const hasActiveFilters = Boolean(search || selectedCandidate || selectedRecruiter || verdictFilter);
+      const matchesRecruiter =
+        !selectedRecruiter ||
+        item.recruiterId === selectedRecruiter ||
+        item.recruiterName === selectedRecruiter;
+
+      const matchesVerdict = !verdictFilter || item.verdict === verdictFilter;
+
+      // Score filter
+      let matchesScore = true;
+      if (scoreFilter === 'high') matchesScore = item.matchScore >= 80;
+      else if (scoreFilter === 'moderate') matchesScore = item.matchScore >= 50 && item.matchScore < 80;
+      else if (scoreFilter === 'low') matchesScore = item.matchScore < 50;
+
+      // Timeframe filter
+      let matchesTimeframe = true;
+      if (timeframeFilter && item.appliedAt) {
+        const itemTime = new Date(item.appliedAt).getTime();
+        const now = Date.now();
+        if (timeframeFilter === 'today') {
+          const todayStart = new Date().setHours(0, 0, 0, 0);
+          matchesTimeframe = itemTime >= todayStart;
+        } else if (timeframeFilter === '7d') {
+          matchesTimeframe = itemTime >= now - 7 * 24 * 60 * 60 * 1000;
+        } else if (timeframeFilter === '30d') {
+          matchesTimeframe = itemTime >= now - 30 * 24 * 60 * 60 * 1000;
+        }
+      }
+
+      return matchesSearch && matchesCandidate && matchesRecruiter && matchesVerdict && matchesScore && matchesTimeframe;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'newest') {
+        return new Date(b.appliedAt).getTime() - new Date(a.appliedAt).getTime();
+      }
+      if (sortBy === 'oldest') {
+        return new Date(a.appliedAt).getTime() - new Date(b.appliedAt).getTime();
+      }
+      if (sortBy === 'score-desc') {
+        return b.matchScore - a.matchScore;
+      }
+      if (sortBy === 'score-asc') {
+        return a.matchScore - b.matchScore;
+      }
+      return 0;
+    });
+
+  const handleExportExcel = () => {
+    if (filtered.length === 0) return;
+
+    const exportRows = filtered.map((item) => ({
+      'Role / Position': getDisplayRole(item.jobTitle, item.rawJdText),
+      'Company / Client': getDisplayCompany(item.companyOrClient, item.rawJdText),
+      'Candidate': item.candidateName || 'Bench Candidate',
+      'Recruiter': item.recruiterName || 'Agency Recruiter',
+      'Verdict': item.verdict,
+      'Match Score (%)': item.matchScore,
+      'Date Evaluated': formatDate(item.appliedAt),
+      'Job URL': item.jobUrl || 'N/A',
+      'AI Evaluation Reasoning': item.matchReasoning,
+      'Full Job Description': item.rawJdText,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    worksheet['!cols'] = [
+      { wch: 30 }, // Role
+      { wch: 25 }, // Company
+      { wch: 22 }, // Candidate
+      { wch: 20 }, // Recruiter
+      { wch: 10 }, // Verdict
+      { wch: 15 }, // Match Score
+      { wch: 20 }, // Date
+      { wch: 35 }, // URL
+      { wch: 60 }, // Reasoning
+      { wch: 70 }, // Raw JD
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Matched JDs');
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(workbook, `Agency_Matched_JDs_${today}.xlsx`);
+  };
+
+  const hasActiveFilters = Boolean(
+    search || selectedCandidate || selectedRecruiter || verdictFilter || scoreFilter || timeframeFilter || sortBy !== 'newest'
+  );
 
   return (
     <div className="space-y-6">
@@ -262,63 +344,117 @@ export default function OrgMatchedJdsPage() {
           </p>
         </div>
 
-        {/* Export to Excel Button */}
-        <button
-          onClick={handleExportExcel}
-          disabled={filtered.length === 0}
-          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Export matched jobs to Excel (.xlsx)"
-        >
-          <Download className="h-4 w-4" />
-          <span>Export to Excel ({filtered.length})</span>
-        </button>
+        {/* Header Actions */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fetchData(false)}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-xs"
+            title="Silent background live sync every 10 seconds"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 text-emerald-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>Live Sync</span>
+            {lastSynced && (
+              <span className="hidden sm:inline text-[10px] text-slate-400">
+                • {lastSynced.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+          </button>
+
+          {/* Export to Excel Button */}
+          <button
+            onClick={handleExportExcel}
+            disabled={filtered.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Export matched jobs to Excel (.xlsx)"
+          >
+            <Download className="h-4 w-4" />
+            <span>Export to Excel ({filtered.length})</span>
+          </button>
+        </div>
       </div>
 
       {/* Multi-Factor Filter Bar */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-        {/* Search */}
-        <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3.5 py-2.5 shadow-xs backdrop-blur sm:col-span-4">
-          <Search className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search role, company, candidate, recruiter..."
-            className="ml-2.5 w-full bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none"
-          />
+      <div className="space-y-3">
+        {/* Primary Row */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+          {/* Search */}
+          <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 px-3.5 py-2 shadow-xs backdrop-blur sm:col-span-4">
+            <Search className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search role, company, candidate, recruiter..."
+              className="ml-2.5 w-full bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none"
+            />
+          </div>
+
+          {/* Filter by Candidate */}
+          <div className="sm:col-span-3">
+            <CustomDropdown
+              value={selectedCandidate}
+              onChange={setSelectedCandidate}
+              options={candidateDropdownOptions}
+              icon={<User className="h-4 w-4" />}
+              placeholder="Select Candidate"
+            />
+          </div>
+
+          {/* Filter by Recruiter */}
+          <div className="sm:col-span-3">
+            <CustomDropdown
+              value={selectedRecruiter}
+              onChange={setSelectedRecruiter}
+              options={recruiterDropdownOptions}
+              icon={<Users className="h-4 w-4" />}
+              placeholder="Select Recruiter"
+            />
+          </div>
+
+          {/* Verdict Filter */}
+          <div className="sm:col-span-2">
+            <CustomDropdown
+              value={verdictFilter}
+              onChange={setVerdictFilter}
+              options={verdictDropdownOptions}
+              icon={<Filter className="h-3.5 w-3.5" />}
+              placeholder="Select Verdict"
+            />
+          </div>
         </div>
 
-        {/* Filter by Candidate */}
-        <div className="sm:col-span-3">
-          <CustomDropdown
-            value={selectedCandidate}
-            onChange={setSelectedCandidate}
-            options={candidateDropdownOptions}
-            icon={<User className="h-4 w-4" />}
-            placeholder="Select Candidate"
-          />
-        </div>
+        {/* Secondary Row: Score, Date, Sort */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+          <div className="sm:col-span-4">
+            <CustomDropdown
+              value={scoreFilter}
+              onChange={setScoreFilter}
+              options={scoreDropdownOptions}
+              icon={<Gauge className="h-3.5 w-3.5" />}
+              placeholder="Filter by Match Score"
+            />
+          </div>
 
-        {/* Filter by Recruiter */}
-        <div className="sm:col-span-3">
-          <CustomDropdown
-            value={selectedRecruiter}
-            onChange={setSelectedRecruiter}
-            options={recruiterDropdownOptions}
-            icon={<Users className="h-4 w-4" />}
-            placeholder="Select Recruiter"
-          />
-        </div>
+          <div className="sm:col-span-4">
+            <CustomDropdown
+              value={timeframeFilter}
+              onChange={setTimeframeFilter}
+              options={timeframeDropdownOptions}
+              icon={<Calendar className="h-3.5 w-3.5" />}
+              placeholder="Filter by Date"
+            />
+          </div>
 
-        {/* Verdict Filter */}
-        <div className="sm:col-span-2">
-          <CustomDropdown
-            value={verdictFilter}
-            onChange={setVerdictFilter}
-            options={verdictDropdownOptions}
-            icon={<Filter className="h-3.5 w-3.5" />}
-            placeholder="Select Verdict"
-          />
+          <div className="sm:col-span-4">
+            <CustomDropdown
+              value={sortBy}
+              onChange={setSortBy}
+              options={sortDropdownOptions}
+              icon={<ArrowUpDown className="h-3.5 w-3.5" />}
+              placeholder="Sort By"
+            />
+          </div>
         </div>
       </div>
 
@@ -337,7 +473,7 @@ export default function OrgMatchedJdsPage() {
 
       {/* List */}
       <div className="space-y-3">
-        {isLoading ? (
+        {isInitialLoading ? (
           <div className="flex h-64 w-full items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent" />
           </div>
@@ -470,7 +606,7 @@ export default function OrgMatchedJdsPage() {
           })
         )}
 
-        {!isLoading && filtered.length === 0 && (
+        {!isInitialLoading && filtered.length === 0 && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-500">
             <Briefcase className="mx-auto h-8 w-8 text-slate-600 mb-2" />
             <p className="text-sm font-medium text-slate-400">No matched JDs found</p>

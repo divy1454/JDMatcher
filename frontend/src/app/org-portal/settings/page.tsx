@@ -2,14 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiRequest } from '@/lib/api';
-import { Sliders, Save, Sparkles, Check, RotateCcw } from 'lucide-react';
+import { Sliders, Save, Sparkles, Check } from 'lucide-react';
 
 const VARIABLE_TOKENS = [
   '{{candidate_name}}',
-  '{{candidate_title}}',
-  '{{visa_status}}',
-  '{{clearance}}',
-  '{{work_preference}}',
   '{{candidate_resume}}',
   '{{jd_text}}',
 ];
@@ -147,20 +143,10 @@ export default function OrgEvaluationSettingsPage() {
 
       {/* Prompt Editor */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-xl">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3">
           <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
             {useCustom ? 'Custom Evaluation Prompt' : 'Global Evaluation Prompt (Read-Only)'}
           </label>
-          {useCustom && (
-            <button
-              type="button"
-              onClick={() => setCustomPrompt(fallbackPrompt)}
-              className="flex items-center gap-1 text-xs text-violet-400 hover:underline"
-            >
-              <RotateCcw className="h-3 w-3" />
-              <span>Reset to Platform Default</span>
-            </button>
-          )}
         </div>
 
         <textarea

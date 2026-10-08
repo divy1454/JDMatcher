@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   X,
   ChevronDown,
+  RefreshCw,
 } from 'lucide-react';
 import { BusinessInvoiceModal, InvoiceDetails } from '@/components/invoice/BusinessInvoiceModal';
 import { CustomDropdown, DropdownOption } from '@/components/ui/CustomDropdown';
@@ -53,10 +54,21 @@ interface OrgSimple {
   slug: string;
 }
 
+interface AdminSummary {
+  totalInvoicedUsd: number;
+  totalPaidUsd: number;
+  totalPendingUsd: number;
+  totalUnbilledUsd: number;
+  totalPlatformVolumeUsd: number;
+  invoicesCount: number;
+}
+
 export default function AdminInvoicesPage() {
   const [invoices, setInvoices] = useState<AdminInvoiceItem[]>([]);
   const [organizations, setOrganizations] = useState<OrgSimple[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [summary, setSummary] = useState<AdminSummary | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Filters
@@ -133,28 +145,45 @@ export default function AdminInvoicesPage() {
     }, 4500);
   };
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = async (isSilent = false) => {
+    if (!isSilent && invoices.length === 0) {
+      setIsInitialLoading(true);
+    } else if (!isSilent) {
+      setIsRefreshing(true);
+    }
+
     try {
-      const [invData, orgData] = await Promise.all([
+      const [invData, orgData, summaryData] = await Promise.all([
         apiRequest('/invoices/admin/all'),
         apiRequest('/orgs'),
+        apiRequest('/invoices/admin/summary').catch(() => null),
       ]);
       setInvoices(invData || []);
       setOrganizations(orgData || []);
+      if (summaryData) setSummary(summaryData);
 
       if (orgData && orgData.length > 0 && !generateForm.organizationId) {
         setGenerateForm((prev) => ({ ...prev, organizationId: orgData[0].id }));
       }
     } catch (err: any) {
       console.error('Failed to load invoices:', err);
-      showNotification('error', 'Failed to load invoices: ' + (err.message || 'Server error'));
+      if (!isSilent) {
+        showNotification('error', 'Failed to load invoices: ' + (err.message || 'Server error'));
+      }
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchInvoices();
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchInvoices(true);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // Handle toggling Super Admin bill generation approval
@@ -317,38 +346,67 @@ export default function AdminInvoicesPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsGenerateModalOpen(true)}
-          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition active:scale-95 w-fit"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Generate Bill</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => fetchInvoices(false)}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 shadow-xs hover:bg-slate-800 transition"
+            title="Auto-refreshes every 10s. Click to refresh live."
+          >
+            <RefreshCw className={`h-3.5 w-3.5 text-indigo-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Updating...' : 'Live Sync'}</span>
+          </button>
+          <button
+            onClick={() => setIsGenerateModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition active:scale-95 w-fit"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Generate Bill</span>
+          </button>
+        </div>
       </div>
 
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Total Platform Volume */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Total Billed Volume</p>
+          <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Total Platform Volume</p>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-white font-mono">${totalBilledUsd.toFixed(2)}</span>
-            <span className="text-xs font-semibold text-emerald-400 font-mono">(₹{totalBilledInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })})</span>
+            <span className="text-2xl font-black text-white font-mono">
+              ${(summary?.totalPlatformVolumeUsd ?? totalBilledUsd).toFixed(2)}
+            </span>
+            <span className="text-xs font-semibold text-emerald-400 font-mono">
+              (₹{((summary?.totalPlatformVolumeUsd ?? totalBilledUsd) * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            </span>
           </div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Invoiced: ${summary?.totalInvoicedUsd.toFixed(2) || totalBilledUsd.toFixed(2)} • Unbilled: ${summary?.totalUnbilledUsd.toFixed(2) || '0.00'}
+          </p>
         </div>
 
+        {/* Paid In Full */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
+          <p className="text-xs uppercase font-bold tracking-wider text-emerald-400">Paid In Full</p>
+          <p className="mt-2 text-2xl font-black text-emerald-400 font-mono">
+            ${(summary?.totalPaidUsd ?? 0).toFixed(2)}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">{paidCount} settled statements</p>
+        </div>
+
+        {/* Pending Settlement */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
+          <p className="text-xs uppercase font-bold tracking-wider text-amber-400">Pending Settlement</p>
+          <p className="mt-2 text-2xl font-black text-amber-400 font-mono">
+            ${(summary?.totalPendingUsd ?? 0).toFixed(2)}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">{pendingCount} awaiting UPI payment</p>
+        </div>
+
+        {/* Invoices Issued */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
           <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Invoices Issued</p>
           <p className="mt-2 text-2xl font-black text-white font-mono">{invoices.length}</p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-emerald-400">Paid In Full</p>
-          <p className="mt-2 text-2xl font-black text-emerald-400 font-mono">{paidCount}</p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-amber-400">Pending Settlement</p>
-          <p className="mt-2 text-2xl font-black text-amber-400 font-mono">{pendingCount}</p>
+          <p className="mt-1 text-[11px] text-slate-500">Official billing records</p>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
-import { organizations, tokenConsumptionLedger, platformSettings } from '../db/schema.js';
-import { eq, sql, and, gte } from 'drizzle-orm';
+import { organizations, tokenConsumptionLedger, platformSettings, invoices } from '../db/schema.js';
+import { eq, sql, and, gte, inArray } from 'drizzle-orm';
 
 export interface TokenUsage {
   inputTokens: number;
@@ -103,6 +103,59 @@ export class BillingService {
     };
   }
 
+  /**
+   * Recalculates exact outstanding deposit usage for an organization:
+   * (Unpaid invoices + unbilled ongoing token ledger consumption)
+   */
+  static async recalculateOrgBilledAmount(organizationId: string): Promise<number> {
+    const orgInvoices = await db
+      .select({
+        billingMonth: invoices.billingMonth,
+        status: invoices.status,
+        totalAmountUsd: invoices.totalAmountUsd,
+      })
+      .from(invoices)
+      .where(eq(invoices.organizationId, organizationId));
+
+    const invoiceMonthMap = new Map<string, { status: string; totalAmountUsd: number }>();
+    let unpaidInvoicesTotal = 0;
+    for (const inv of orgInvoices) {
+      const amt = parseFloat(inv.totalAmountUsd) || 0;
+      invoiceMonthMap.set(inv.billingMonth, { status: inv.status, totalAmountUsd: amt });
+      if (inv.status !== 'paid' && inv.status !== 'void') {
+        unpaidInvoicesTotal += amt;
+      }
+    }
+
+    const ledgerAggregates = await db
+      .select({
+        monthStr: sql<string>`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM')`,
+        totalCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+      })
+      .from(tokenConsumptionLedger)
+      .where(eq(tokenConsumptionLedger.organizationId, organizationId))
+      .groupBy(sql`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM')`);
+
+    let unbilledLedgerTotal = 0;
+    for (const l of ledgerAggregates) {
+      if (!invoiceMonthMap.has(l.monthStr)) {
+        unbilledLedgerTotal += l.totalCostUsd;
+      }
+    }
+
+    const outstandingTotal = Number((unpaidInvoicesTotal + unbilledLedgerTotal).toFixed(4));
+
+    await db
+      .update(organizations)
+      .set({
+        totalBilledAmount: outstandingTotal.toFixed(4),
+        updatedAt: new Date(),
+      })
+      .where(eq(organizations.id, organizationId));
+
+    return outstandingTotal;
+  }
+
   static async markAsPaid(organizationId: string, triggeredBy?: string): Promise<{ success: boolean; previousBilled: string; auditTimestamp: string }> {
     const [org] = await db
       .select({ totalBilledAmount: organizations.totalBilledAmount, name: organizations.name })
@@ -118,7 +171,7 @@ export class BillingService {
     const auditTimestamp = new Date().toISOString();
 
     await db.transaction(async (tx) => {
-      // Reset the billed amount
+      // 1. Reset the billed amount on the organization
       await tx
         .update(organizations)
         .set({
@@ -127,7 +180,22 @@ export class BillingService {
         })
         .where(eq(organizations.id, organizationId));
 
-      // Record audit trail entry in platform_settings
+      // 2. Mark any outstanding / generated / pending invoices as paid so all screens stay in 100% sync!
+      await tx
+        .update(invoices)
+        .set({
+          status: 'paid',
+          paidAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(invoices.organizationId, organizationId),
+            inArray(invoices.status, ['generated', 'pending', 'overdue'])
+          )
+        );
+
+      // 3. Record audit trail entry in platform_settings
       const auditKey = `PAYMENT_AUDIT_${organizationId}_${Date.now()}`;
       await tx.insert(platformSettings).values({
         key: auditKey,
@@ -150,46 +218,61 @@ export class BillingService {
     return { success: true, previousBilled, auditTimestamp };
   }
 
-  static async getTelemetryStats(timeframe: '1h' | '24h' | '7d' | '30d' = '24h', organizationId?: string) {
-    const now = new Date();
-    const timeframeMs = {
-      '1h': 60 * 60 * 1000,
-      '24h': 24 * 60 * 60 * 1000,
-      '7d': 7 * 24 * 60 * 60 * 1000,
-      '30d': 30 * 24 * 60 * 60 * 1000,
-    }[timeframe];
+  static async getTelemetryStats(timeframe: '1h' | '24h' | '7d' | '30d' | 'all' = '24h', organizationId?: string) {
+    const conditions = [];
 
-    const sinceDate = new Date(now.getTime() - timeframeMs);
+    if (timeframe !== 'all') {
+      const now = new Date();
+      const timeframeMs = {
+        '1h': 60 * 60 * 1000,
+        '24h': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000,
+      }[timeframe];
 
-    const conditions = [gte(tokenConsumptionLedger.timestamp, sinceDate)];
+      const sinceDate = new Date(now.getTime() - timeframeMs);
+      conditions.push(gte(tokenConsumptionLedger.timestamp, sinceDate));
+    }
+
     if (organizationId) {
       conditions.push(eq(tokenConsumptionLedger.organizationId, organizationId));
     }
 
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
     // Aggregates over the timeframe
-    const aggregateQuery = await db
-      .select({
-        totalEvaluations: sql<number>`count(*)`,
-        totalRawCost: sql<number>`coalesce(sum(raw_cost_usd), 0)`,
-        totalBilledCost: sql<number>`coalesce(sum(billed_cost_usd), 0)`,
-        avgLatencyMs: sql<number>`coalesce(avg(latency_ms), 0)`,
-        totalTokens: sql<number>`coalesce(sum(total_tokens), 0)`,
-      })
-      .from(tokenConsumptionLedger)
-      .where(and(...conditions));
+    const aggregateQuery = await (whereClause
+      ? db.select({
+          totalEvaluations: sql<number>`count(*)`,
+          totalRawCost: sql<number>`coalesce(sum(raw_cost_usd), 0)`,
+          totalBilledCost: sql<number>`coalesce(sum(billed_cost_usd), 0)`,
+          avgLatencyMs: sql<number>`coalesce(avg(latency_ms), 0)`,
+          totalTokens: sql<number>`coalesce(sum(total_tokens), 0)`,
+        }).from(tokenConsumptionLedger).where(whereClause)
+      : db.select({
+          totalEvaluations: sql<number>`count(*)`,
+          totalRawCost: sql<number>`coalesce(sum(raw_cost_usd), 0)`,
+          totalBilledCost: sql<number>`coalesce(sum(billed_cost_usd), 0)`,
+          avgLatencyMs: sql<number>`coalesce(avg(latency_ms), 0)`,
+          totalTokens: sql<number>`coalesce(sum(total_tokens), 0)`,
+        }).from(tokenConsumptionLedger));
 
     // Breakdown by actionType (regular eval vs resume_analysis)
-    const breakdownQuery = await db
-      .select({
-        actionType: tokenConsumptionLedger.actionType,
-        count: sql<number>`count(*)::int`,
-        rawCost: sql<number>`coalesce(sum(raw_cost_usd), 0)::float`,
-        billedCost: sql<number>`coalesce(sum(billed_cost_usd), 0)::float`,
-        tokens: sql<number>`coalesce(sum(total_tokens), 0)::int`,
-      })
-      .from(tokenConsumptionLedger)
-      .where(and(...conditions))
-      .groupBy(tokenConsumptionLedger.actionType);
+    const breakdownQuery = await (whereClause
+      ? db.select({
+          actionType: tokenConsumptionLedger.actionType,
+          count: sql<number>`count(*)::int`,
+          rawCost: sql<number>`coalesce(sum(raw_cost_usd), 0)::float`,
+          billedCost: sql<number>`coalesce(sum(billed_cost_usd), 0)::float`,
+          tokens: sql<number>`coalesce(sum(total_tokens), 0)::int`,
+        }).from(tokenConsumptionLedger).where(whereClause).groupBy(tokenConsumptionLedger.actionType)
+      : db.select({
+          actionType: tokenConsumptionLedger.actionType,
+          count: sql<number>`count(*)::int`,
+          rawCost: sql<number>`coalesce(sum(raw_cost_usd), 0)::float`,
+          billedCost: sql<number>`coalesce(sum(billed_cost_usd), 0)::float`,
+          tokens: sql<number>`coalesce(sum(total_tokens), 0)::int`,
+        }).from(tokenConsumptionLedger).groupBy(tokenConsumptionLedger.actionType));
 
     let evalCount = 0;
     let evalBilledCost = 0;
@@ -216,17 +299,21 @@ export class BillingService {
     }
 
     // Time-series breakdown for Recharts Area Chart
-    const timeSeries = await db
-      .select({
-        timestamp: tokenConsumptionLedger.timestamp,
-        rawCost: tokenConsumptionLedger.rawCostUsd,
-        billedCost: tokenConsumptionLedger.billedCostUsd,
-        latencyMs: tokenConsumptionLedger.latencyMs,
-        actionType: tokenConsumptionLedger.actionType,
-      })
-      .from(tokenConsumptionLedger)
-      .where(and(...conditions))
-      .orderBy(tokenConsumptionLedger.timestamp);
+    const timeSeries = await (whereClause
+      ? db.select({
+          timestamp: tokenConsumptionLedger.timestamp,
+          rawCost: tokenConsumptionLedger.rawCostUsd,
+          billedCost: tokenConsumptionLedger.billedCostUsd,
+          latencyMs: tokenConsumptionLedger.latencyMs,
+          actionType: tokenConsumptionLedger.actionType,
+        }).from(tokenConsumptionLedger).where(whereClause).orderBy(tokenConsumptionLedger.timestamp)
+      : db.select({
+          timestamp: tokenConsumptionLedger.timestamp,
+          rawCost: tokenConsumptionLedger.rawCostUsd,
+          billedCost: tokenConsumptionLedger.billedCostUsd,
+          latencyMs: tokenConsumptionLedger.latencyMs,
+          actionType: tokenConsumptionLedger.actionType,
+        }).from(tokenConsumptionLedger).orderBy(tokenConsumptionLedger.timestamp));
 
     const stats = aggregateQuery[0] || {
       totalEvaluations: 0,

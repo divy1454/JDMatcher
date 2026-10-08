@@ -1,6 +1,7 @@
 import { db } from '../db/index.js';
 import { invoices, organizations, users, tokenConsumptionLedger, Invoice } from '../db/schema.js';
 import { eq, and, sql, desc, gte, lte } from 'drizzle-orm';
+import { BillingService } from './billingService.js';
 
 export interface MonthlyExpenseItem {
   billingMonth: string; // '2026-09'
@@ -305,7 +306,10 @@ export class InvoiceService {
     const outputRatePerM = Number((2.50 * multiplier).toFixed(2));
     const inputCostUsd = Number(((inputTokens / 1_000_000) * inputRatePerM).toFixed(4));
     const outputCostUsd = Number(((outputTokens / 1_000_000) * outputRatePerM).toFixed(4));
-    const subtotalUsd = Number((inputCostUsd + outputCostUsd).toFixed(4));
+    // Strictly prioritize exact recorded ledger cost to prevent any penny divergence
+    const subtotalUsd = ledgerStats?.cost !== undefined && ledgerStats.cost > 0
+      ? Number(ledgerStats.cost.toFixed(4))
+      : Number((inputCostUsd + outputCostUsd).toFixed(4));
 
     const liveRateInfo = await this.fetchLiveUsdToInrRate();
     const totalInr = Number((subtotalUsd * liveRateInfo.rate).toFixed(2));
@@ -388,10 +392,12 @@ export class InvoiceService {
     const inputTokens = ledgerStats?.inputTokens || 0;
     const outputTokens = ledgerStats?.outputTokens || 0;
 
-    // Requirement 5: strictly use actual consumed tokens and billed cost!
+    // Requirement 5: strictly use actual consumed tokens and billed cost directly from ledger!
+    const subtotalUsd = ledgerStats?.cost !== undefined && ledgerStats.cost > 0
+      ? Number(ledgerStats.cost.toFixed(4))
+      : Number((((inputTokens / 1_000_000) * inputRatePerM) + ((outputTokens / 1_000_000) * outputRatePerM)).toFixed(4));
     const inputCostUsd = Number(((inputTokens / 1_000_000) * inputRatePerM).toFixed(4));
-    const outputCostUsd = Number(((outputTokens / 1_000_000) * outputRatePerM).toFixed(4));
-    const subtotalUsd = Number((inputCostUsd + outputCostUsd).toFixed(4));
+    const outputCostUsd = Number((subtotalUsd - inputCostUsd).toFixed(4));
 
     const totalTokens = inputTokens + outputTokens;
     const taxUsd = 0; // Standard zero export tax
@@ -481,6 +487,9 @@ export class InvoiceService {
       })
       .returning();
 
+    // Reconcile organization outstanding deposit balance
+    await BillingService.recalculateOrgBilledAmount(organizationId);
+
     return created;
   }
 
@@ -528,6 +537,10 @@ export class InvoiceService {
     if (!updated) {
       throw new Error('Invoice not found');
     }
+
+    // Immediately reconcile organization outstanding security deposit balance
+    await BillingService.recalculateOrgBilledAmount(updated.organizationId);
+
     return updated;
   }
 
@@ -568,4 +581,53 @@ export class InvoiceService {
       return true;
     });
   }
+
+  /**
+   * Super Admin summary of platform billing:
+   * Reconciles invoiced volume, unbilled token usage, and total platform volume.
+   */
+  static async getAdminInvoiceSummary() {
+    const allInvoices = await db.select().from(invoices);
+    let totalInvoicedUsd = 0;
+    let totalPaidUsd = 0;
+    let totalPendingUsd = 0;
+    const invoicedMonthsSet = new Set<string>();
+
+    for (const inv of allInvoices) {
+      const amt = parseFloat(inv.totalAmountUsd) || 0;
+      totalInvoicedUsd += amt;
+      invoicedMonthsSet.add(`${inv.organizationId}_${inv.billingMonth}`);
+      if (inv.status === 'paid') {
+        totalPaidUsd += amt;
+      } else if (inv.status !== 'void') {
+        totalPendingUsd += amt;
+      }
+    }
+
+    const ledgerAggs = await db
+      .select({
+        organizationId: tokenConsumptionLedger.organizationId,
+        monthStr: sql<string>`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM')`,
+        totalCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+      })
+      .from(tokenConsumptionLedger)
+      .groupBy(tokenConsumptionLedger.organizationId, sql`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM')`);
+
+    let totalUnbilledUsd = 0;
+    for (const l of ledgerAggs) {
+      if (!invoicedMonthsSet.has(`${l.organizationId}_${l.monthStr}`)) {
+        totalUnbilledUsd += l.totalCostUsd;
+      }
+    }
+
+    return {
+      totalInvoicedUsd: Number(totalInvoicedUsd.toFixed(2)),
+      totalPaidUsd: Number(totalPaidUsd.toFixed(2)),
+      totalPendingUsd: Number(totalPendingUsd.toFixed(2)),
+      totalUnbilledUsd: Number(totalUnbilledUsd.toFixed(2)),
+      totalPlatformVolumeUsd: Number((totalInvoicedUsd + totalUnbilledUsd).toFixed(2)),
+      invoicesCount: allInvoices.length,
+    };
+  }
 }
+

@@ -96,7 +96,7 @@ interface TelemetryData {
 
 export default function TelemetryPage() {
   const [isMounted, setIsMounted] = useState(false);
-  const [timeframe, setTimeframe] = useState<'1h' | '24h' | '7d' | '30d'>('24h');
+  const [timeframe, setTimeframe] = useState<'1h' | '24h' | '7d' | '30d' | 'all'>('24h');
   const [data, setData] = useState<TelemetryData | null>(null);
   const [resumeStats, setResumeStats] = useState<ResumeStatsSuper | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -224,7 +224,7 @@ export default function TelemetryPage() {
 
           {/* Timeframe Filter Dropdown */}
           <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-1 shadow-xs backdrop-blur">
-            {(['1h', '24h', '7d', '30d'] as const).map((t) => (
+            {(['1h', '24h', '7d', '30d', 'all'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTimeframe(t)}
@@ -233,7 +233,7 @@ export default function TelemetryPage() {
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
               >
-                {t}
+                {t === 'all' ? 'All Time' : t}
               </button>
             ))}
           </div>

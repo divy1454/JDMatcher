@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { apiRequest } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -17,8 +17,10 @@ import {
   ArrowRight,
   Cpu,
   Search,
+  Filter,
   RefreshCw,
   ExternalLink,
+  DollarSign,
 } from 'lucide-react';
 import { BusinessInvoiceModal, InvoiceDetails } from '@/components/invoice/BusinessInvoiceModal';
 
@@ -54,15 +56,27 @@ interface OrgInfo {
 export default function AgencyBillingLedgerPage() {
   const [expenses, setExpenses] = useState<MonthlyExpenseItem[]>([]);
   const [org, setOrg] = useState<OrgInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Filter States
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PAID' | 'PAYMENT_DUE' | 'UNBILLED'>('ALL');
+  const [yearFilter, setYearFilter] = useState<string>('ALL');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'amount_desc' | 'amount_asc'>('newest');
 
   // Invoice Modal State
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetails | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [loadingInvoiceId, setLoadingInvoiceId] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = async (isSilent = false) => {
+    if (!isSilent && expenses.length === 0) {
+      setIsInitialLoading(true);
+    } else if (!isSilent) {
+      setIsRefreshing(true);
+    }
+
     try {
       const [expensesRes, orgRes] = await Promise.all([
         apiRequest('/invoices/my-expenses').catch(() => []),
@@ -78,12 +92,20 @@ export default function AgencyBillingLedgerPage() {
     } catch (err) {
       console.error('Failed to load agency billing ledger:', err);
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
+      setIsRefreshing(false);
     }
   };
 
+  // 10s silent background auto-refresh
   useEffect(() => {
     fetchData();
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchData(true);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleDownloadInvoice = async (invoiceId: string) => {
@@ -105,24 +127,69 @@ export default function AgencyBillingLedgerPage() {
     }
   };
 
-  const filteredExpenses = expenses.filter((e) => {
-    if (!search.trim()) return true;
-    const s = search.toLowerCase();
-    return (
-      e.monthLabel.toLowerCase().includes(s) ||
-      e.billingMonth.toLowerCase().includes(s) ||
-      (e.invoice?.invoiceNumber && e.invoice.invoiceNumber.toLowerCase().includes(s))
-    );
-  });
+  // Available Years
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    expenses.forEach((e) => {
+      const y = e.billingMonth.split('-')[0];
+      if (y) years.add(y);
+    });
+    return Array.from(years).sort().reverse();
+  }, [expenses]);
 
+  // Filtered & Sorted Expenses
+  const filteredExpenses = useMemo(() => {
+    return expenses
+      .filter((e) => {
+        // Search filter
+        if (search.trim()) {
+          const s = search.toLowerCase().trim();
+          const matches =
+            e.monthLabel.toLowerCase().includes(s) ||
+            e.billingMonth.toLowerCase().includes(s) ||
+            (e.invoice?.invoiceNumber && e.invoice.invoiceNumber.toLowerCase().includes(s));
+          if (!matches) return false;
+        }
+
+        // Status filter
+        if (statusFilter !== 'ALL' && e.status !== statusFilter) {
+          return false;
+        }
+
+        // Year filter
+        if (yearFilter !== 'ALL' && !e.billingMonth.startsWith(yearFilter)) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'newest') return b.billingMonth.localeCompare(a.billingMonth);
+        if (sortBy === 'oldest') return a.billingMonth.localeCompare(b.billingMonth);
+        if (sortBy === 'amount_desc') return b.totalAmountUsd - a.totalAmountUsd;
+        if (sortBy === 'amount_asc') return a.totalAmountUsd - b.totalAmountUsd;
+        return 0;
+      });
+  }, [expenses, search, statusFilter, yearFilter, sortBy]);
+
+  // Overall Reconciled KPI Totals
   const totalBilledUsd = expenses.reduce((acc, e) => acc + e.totalAmountUsd, 0);
   const totalBilledInr = expenses.reduce((acc, e) => acc + e.totalAmountInr, 0);
-  const totalEvaluations = expenses.reduce((acc, e) => acc + e.totalEvaluations, 0);
   const totalTokens = expenses.reduce((acc, e) => acc + e.totalTokens, 0);
-  const settledCount = expenses.filter((e) => e.status === 'PAID').length;
-  const pendingCount = expenses.filter((e) => e.status === 'PAYMENT_DUE').length;
 
-  if (isLoading) {
+  const paidExpenses = expenses.filter((e) => e.status === 'PAID');
+  const paidUsd = paidExpenses.reduce((acc, e) => acc + e.totalAmountUsd, 0);
+
+  const pendingExpenses = expenses.filter((e) => e.status === 'PAYMENT_DUE');
+  const pendingUsd = pendingExpenses.reduce((acc, e) => acc + e.totalAmountUsd, 0);
+
+  const unbilledExpenses = expenses.filter((e) => e.status === 'UNBILLED');
+  const unbilledUsd = unbilledExpenses.reduce((acc, e) => acc + e.totalAmountUsd, 0);
+
+  // Total Outstanding Balance (matches HUD Deposit Consumed)
+  const outstandingBalanceUsd = pendingUsd + unbilledUsd;
+
+  if (isInitialLoading && expenses.length === 0) {
     return (
       <div className="flex h-64 w-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet-500 border-t-transparent" />
@@ -149,34 +216,54 @@ export default function AgencyBillingLedgerPage() {
             href="/org-portal/billing"
             className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3.5 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition"
           >
-            <span>Usage & Billing</span>
+            <span>Billing HUD</span>
             <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
           </Link>
           <button
-            onClick={() => {
-              setIsLoading(true);
-              fetchData();
-            }}
-            className="rounded-xl border border-slate-800 bg-slate-900/80 p-2 text-slate-400 hover:text-white transition"
-            title="Refresh Ledger"
+            onClick={() => fetchData(false)}
+            disabled={isRefreshing}
+            className="rounded-xl border border-slate-800 bg-slate-900/80 p-2 text-slate-400 hover:text-white transition disabled:opacity-50"
+            title="Auto-refreshes every 10s. Click to refresh live."
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-violet-400' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards: Reconciled with Billing HUD and Super Admin */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Total Billed */}
+        {/* Cumulative Volume (All-Time) */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Cumulative Expense</p>
+          <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Cumulative Volume (All-Time)</p>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-black text-white font-mono">${totalBilledUsd.toFixed(2)}</span>
             <span className="text-xs font-semibold text-emerald-400 font-mono">
               (₹{totalBilledInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })})
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">Across {expenses.length} monthly cycles</p>
+          <p className="mt-1 text-[11px] text-slate-500">Across {expenses.length} monthly cycles • Reconciled with HUD</p>
+        </div>
+
+        {/* Outstanding / Deposit Consumed */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
+          <p className="text-xs uppercase font-bold tracking-wider text-amber-400">Outstanding / Unpaid Balance</p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-amber-400 font-mono">${outstandingBalanceUsd.toFixed(2)}</span>
+            <span className="text-xs text-slate-400 font-mono">
+              ({pendingExpenses.length} due, {unbilledExpenses.length} ongoing)
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">Current unpaid deposit exposure</p>
+        </div>
+
+        {/* Paid In Full */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
+          <p className="text-xs uppercase font-bold tracking-wider text-emerald-400">Settled to Date</p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-emerald-400 font-mono">${paidUsd.toFixed(2)}</span>
+            <span className="text-xs text-slate-400 font-mono">({paidExpenses.length} paid)</span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">Official tax invoices available</p>
         </div>
 
         {/* Tokens Consumed */}
@@ -186,20 +273,6 @@ export default function AgencyBillingLedgerPage() {
             {(totalTokens / 1_000_000).toFixed(2)}M
           </p>
           <p className="mt-1 text-[11px] text-slate-500">Pure token billing basis</p>
-        </div>
-
-        {/* Paid Invoices */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-emerald-400">Paid Invoices</p>
-          <p className="mt-2 text-2xl font-black text-emerald-400 font-mono">{settledCount}</p>
-          <p className="mt-1 text-[11px] text-slate-500">Settled receipts available</p>
-        </div>
-
-        {/* Payment Due */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-amber-400">Payment Due</p>
-          <p className="mt-2 text-2xl font-black text-amber-400 font-mono">{pendingCount}</p>
-          <p className="mt-1 text-[11px] text-slate-500">Awaiting UPI settlement</p>
         </div>
       </div>
 
@@ -213,22 +286,107 @@ export default function AgencyBillingLedgerPage() {
 
       {/* Main Ledger Table Card */}
       <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-6 backdrop-blur-xl shadow-sm dark:shadow-xl space-y-6">
-        {/* Table Controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">Monthly Expense Statements</h2>
-            <p className="text-xs text-slate-600 dark:text-slate-400">Download official tax invoices and review monthly token consumption.</p>
+        {/* Table Filter Controls */}
+        <div className="flex flex-col gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">Monthly Expense Statements</h2>
+              <p className="text-xs text-slate-600 dark:text-slate-400">Download official tax invoices and review monthly token consumption.</p>
+            </div>
+
+            {/* Quick Text Search */}
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search month or invoice #..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-violet-500 focus:outline-none"
+              />
+            </div>
           </div>
 
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by month or invoice #..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-violet-500 focus:outline-none"
-            />
+          {/* Agency Admin Filter Options Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Status Tabs */}
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ALL')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  statusFilter === 'ALL'
+                    ? 'bg-violet-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                All Cycles ({expenses.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('PAID')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  statusFilter === 'PAID'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Paid ({paidExpenses.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('PAYMENT_DUE')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  statusFilter === 'PAYMENT_DUE'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Payment Due ({pendingExpenses.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('UNBILLED')}
+                className={`rounded-lg px-3 py-1 font-semibold transition ${
+                  statusFilter === 'UNBILLED'
+                    ? 'bg-slate-700 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Unbilled ({unbilledExpenses.length})
+              </button>
+            </div>
+
+            {/* Year & Sort Dropdowns */}
+            <div className="flex items-center gap-2.5">
+              {/* Year Filter */}
+              {availableYears.length > 0 && (
+                <select
+                  value={yearFilter}
+                  onChange={(e) => setYearFilter(e.target.value)}
+                  className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:border-violet-500 focus:outline-none"
+                >
+                  <option value="ALL">All Years</option>
+                  {availableYears.map((yr) => (
+                    <option key={yr} value={yr}>
+                      Year {yr}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Sort By */}
+              <select
+                value={sortBy}
+                onChange={(e: any) => setSortBy(e.target.value)}
+                className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:border-violet-500 focus:outline-none"
+              >
+                <option value="newest">Newest Month First</option>
+                <option value="oldest">Oldest Month First</option>
+                <option value="amount_desc">Highest Amount ($)</option>
+                <option value="amount_asc">Lowest Amount ($)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -276,50 +434,49 @@ export default function AgencyBillingLedgerPage() {
                     </td>
 
                     {/* Tokens */}
-                    <td className="py-4 font-mono text-xs text-slate-600 dark:text-slate-400">
-                      {(item.totalTokens / 1_000_000).toFixed(2)}M tokens
+                    <td className="py-4 font-mono text-xs text-slate-600 dark:text-slate-300">
+                      {item.totalTokens.toLocaleString()} tokens
                     </td>
 
-                    {/* USD Total */}
-                    <td className="py-4 font-bold text-slate-900 dark:text-white font-mono">
+                    {/* USD */}
+                    <td className="py-4 font-bold font-mono text-slate-900 dark:text-white">
                       ${item.totalAmountUsd.toFixed(2)}
                     </td>
 
-                    {/* INR Total */}
-                    <td className="py-4 font-bold text-emerald-700 dark:text-emerald-400 font-mono">
+                    {/* INR */}
+                    <td className="py-4 font-bold font-mono text-emerald-600 dark:text-emerald-400">
                       ₹{item.totalAmountInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
 
-                    {/* Status */}
+                    {/* Status Badge */}
                     <td className="py-4 text-center">
                       {isPaid && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-400 shadow-sm">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                          PAID
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>Paid</span>
                         </span>
                       )}
                       {isDue && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 px-3 py-1 text-xs font-bold text-amber-700 dark:text-amber-400 shadow-sm">
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                          PAYMENT DUE
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          <span>Payment Due</span>
                         </span>
                       )}
                       {isUnbilled && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1 text-xs font-medium text-slate-700 dark:text-slate-400 shadow-sm">
-                          <Clock className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
-                          UNBILLED
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-400">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>Unbilled (Ongoing)</span>
                         </span>
                       )}
                     </td>
 
-                    {/* Download Button (Only enabled if Super Admin generated the bill!) */}
+                    {/* Invoice Action Button */}
                     <td className="py-4 pr-2 text-right">
                       {canDownload ? (
                         <button
-                          type="button"
                           onClick={() => handleDownloadInvoice(item.invoice!.id)}
                           disabled={loadingInvoiceId === item.invoice!.id}
-                          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-violet-600/25 hover:from-violet-500 hover:to-indigo-500 transition active:scale-95 disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-violet-500 transition disabled:opacity-50"
                         >
                           {loadingInvoiceId === item.invoice!.id ? (
                             <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -330,11 +487,11 @@ export default function AgencyBillingLedgerPage() {
                         </button>
                       ) : (
                         <div
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 px-3 py-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-500"
-                          title="This month's invoice will become downloadable once generated by Super Admin"
+                          className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 cursor-not-allowed"
+                          title="Invoice will become downloadable once issued by Super Admin at monthly close."
                         >
-                          <Lock className="h-3 w-3 text-slate-500 dark:text-slate-600" />
-                          <span>Pending Super Admin Generation</span>
+                          <Lock className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
+                          <span>Awaiting Bill</span>
                         </div>
                       )}
                     </td>
@@ -345,7 +502,7 @@ export default function AgencyBillingLedgerPage() {
               {filteredExpenses.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-xs text-slate-500">
-                    No billing statements found matching your criteria.
+                    No monthly cycles matched the selected filter criteria.
                   </td>
                 </tr>
               )}
@@ -354,12 +511,14 @@ export default function AgencyBillingLedgerPage() {
         </div>
       </div>
 
-      {/* Real-Life Business Tax Invoice Modal with Scannable UPI QR */}
-      <BusinessInvoiceModal
-        isOpen={isInvoiceModalOpen}
-        onClose={() => setIsInvoiceModalOpen(false)}
-        invoice={selectedInvoice}
-      />
+      {/* Invoice Modal Preview */}
+      {selectedInvoice && (
+        <BusinessInvoiceModal
+          isOpen={isInvoiceModalOpen}
+          onClose={() => setIsInvoiceModalOpen(false)}
+          invoice={selectedInvoice}
+        />
+      )}
     </div>
   );
 }

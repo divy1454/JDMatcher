@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
-import { organizations, users, tokenConsumptionLedger, matchedJds } from '../db/schema.js';
+import { organizations, users, tokenConsumptionLedger, matchedJds, invoices } from '../db/schema.js';
 import { eq, desc, sql, and } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
 import { BillingService } from '../services/billingService.js';
@@ -47,6 +47,7 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           updatedAt: organizations.updatedAt,
           recruiterCount: sql<number>`(SELECT count(*) FROM users WHERE users.organization_id = organizations.id AND users.role = 'recruiter')`,
           resumeAnalysisCount: sql<number>`(SELECT count(*) FROM token_consumption_ledger WHERE token_consumption_ledger.organization_id = organizations.id AND token_consumption_ledger.action_type = 'resume_analysis')::int`,
+          cumulativeLifetimeSpend: sql<number>`(SELECT coalesce(sum(billed_cost_usd), 0)::float FROM token_consumption_ledger WHERE token_consumption_ledger.organization_id = organizations.id)`,
         })
         .from(organizations)
         .orderBy(desc(organizations.createdAt))
@@ -221,10 +222,26 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           )
         );
 
+      const [lifetimeStats] = await db
+        .select({
+          totalLifetime: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+        })
+        .from(tokenConsumptionLedger)
+        .where(eq(tokenConsumptionLedger.organizationId, user.organizationId!));
+
+      const [paidStats] = await db
+        .select({
+          totalPaid: sql<number>`coalesce(sum(${invoices.totalAmountUsd}), 0)::float`,
+        })
+        .from(invoices)
+        .where(and(eq(invoices.organizationId, user.organizationId!), eq(invoices.status, 'paid')));
+
       const limit = parseFloat(org.securityDepositLimit);
       const billed = parseFloat(org.totalBilledAmount);
       const remainingDeposit = Math.max(0, limit - billed);
       const usagePercentage = Number(((billed / limit) * 100).toFixed(2));
+      const totalLifetimeBilled = Number((lifetimeStats?.totalLifetime || 0).toFixed(4));
+      const totalPaid = Number((paidStats?.totalPaid || 0).toFixed(4));
 
       // Omit internal pricing secrets: agency should NEVER see their profitMultiplier
       const { profitMultiplier: _hiddenMultiplier, ...sanitizedOrg } = org;
@@ -233,7 +250,10 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         organization: sanitizedOrg,
         hud: {
           securityDepositLimit: limit,
-          totalBilledAmount: billed,
+          totalBilledAmount: billed, // Outstanding balance towards limit
+          outstandingDepositUsed: billed,
+          cumulativeLifetimeSpend: totalLifetimeBilled, // Exact match with Billing Ledger
+          totalPaidAmount: totalPaid,
           remainingDeposit,
           usagePercentage,
           isLocked: billed >= limit,

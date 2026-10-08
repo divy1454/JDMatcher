@@ -7,10 +7,6 @@ import { FileCode2, Save, Sparkles, Check, RefreshCw } from 'lucide-react';
 
 const VARIABLE_TOKENS = [
   { token: '{{candidate_name}}', desc: 'Candidate Full Name' },
-  { token: '{{candidate_title}}', desc: 'Primary Job Title' },
-  { token: '{{visa_status}}', desc: 'Visa Status' },
-  { token: '{{clearance}}', desc: 'Security Clearance' },
-  { token: '{{work_preference}}', desc: 'Work Preference' },
   { token: '{{candidate_resume}}', desc: 'Candidate Resume' },
   { token: '{{jd_text}}', desc: 'Job Description' },
 ];
