@@ -606,12 +606,13 @@ export class InvoiceService {
       orgUsersMap.set(u.organizationId, existing);
     }
 
-    // Ledger consumption by org and month
+    // Ledger consumption by org and month (both billed and raw costs)
     const ledgerAggs = await db
       .select({
         organizationId: tokenConsumptionLedger.organizationId,
         monthStr: sql<string>`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM')`,
         totalCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+        rawCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.rawCostUsd}), 0)::float`,
       })
       .from(tokenConsumptionLedger)
       .groupBy(tokenConsumptionLedger.organizationId, sql`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM')`);
@@ -627,13 +628,16 @@ export class InvoiceService {
       orgInvoicesMap.set(inv.organizationId, list);
     }
 
-    // Unbilled ledger costs by org
+    // Unbilled ledger costs by org & raw cost accumulation
     const orgUnbilledMap = new Map<string, number>();
+    const orgRawCostsMap = new Map<string, number>();
     for (const l of ledgerAggs) {
       if (!invoicedMonthsSet.has(`${l.organizationId}_${l.monthStr}`)) {
         const cur = orgUnbilledMap.get(l.organizationId) || 0;
         orgUnbilledMap.set(l.organizationId, cur + l.totalCostUsd);
       }
+      const rawCur = orgRawCostsMap.get(l.organizationId) || 0;
+      orgRawCostsMap.set(l.organizationId, rawCur + l.rawCostUsd);
     }
 
     let globalInvoicedUsd = 0;
@@ -678,6 +682,18 @@ export class InvoiceService {
       const depositUsagePercent = depositAllowed > 0 ? Math.min(100, Math.round((depositUsed / depositAllowed) * 100)) : 0;
       const lifetimeUsd = Number((orgInvoicedUsd + unbilledUsd).toFixed(2));
 
+      // Calculate Agency Raw API Cost & Net Profit
+      const multiplier = parseFloat(org.profitMultiplier) || 4.0;
+      let orgRawCostUsd = orgRawCostsMap.get(org.id) || 0;
+      if (orgRawCostUsd === 0 && lifetimeUsd > 0) {
+        orgRawCostUsd = Number((lifetimeUsd / multiplier).toFixed(4));
+      }
+      const orgNetProfitUsd = Math.max(0, Number((lifetimeUsd - orgRawCostUsd).toFixed(2)));
+      const orgSettledProfitUsd = orgPaidUsd > 0
+        ? Math.max(0, Number((orgPaidUsd - (orgPaidUsd / multiplier)).toFixed(2)))
+        : 0;
+      const profitMarginPercent = lifetimeUsd > 0 ? Math.round((orgNetProfitUsd / lifetimeUsd) * 100) : 75;
+
       globalInvoicedUsd += orgInvoicedUsd;
       globalPaidUsd += orgPaidUsd;
       globalPendingUsd += orgPendingUsd;
@@ -706,6 +722,10 @@ export class InvoiceService {
         totalPendingUsd: Number(orgPendingUsd.toFixed(2)), // Pending Due
         totalUnbilledUsd: Number(unbilledUsd.toFixed(2)), // Ongoing unbilled WIP
         totalLifetimeVolumeUsd: lifetimeUsd,
+        totalRawCostUsd: Number(orgRawCostUsd.toFixed(2)),
+        totalProfitUsd: orgNetProfitUsd, // Super Admin Net Profit for this Agency
+        totalSettledProfitUsd: orgSettledProfitUsd,
+        profitMarginPercent,
         depositUsed,
         depositAllowed,
         depositRemaining,
@@ -719,12 +739,27 @@ export class InvoiceService {
       };
     });
 
+    let globalRawCostUsd = 0;
+    for (const a of agenciesBreakdown) {
+      globalRawCostUsd += a.totalRawCostUsd;
+    }
+    const globalPlatformVolumeUsd = Number((globalInvoicedUsd + globalUnbilledUsd).toFixed(2));
+    const globalNetProfitUsd = Math.max(0, Number((globalPlatformVolumeUsd - globalRawCostUsd).toFixed(2)));
+    const globalSettledProfitUsd = Math.max(0, Number((globalPaidUsd * 0.75).toFixed(2)));
+    const globalProfitMarginPercent = globalPlatformVolumeUsd > 0
+      ? Math.round((globalNetProfitUsd / globalPlatformVolumeUsd) * 100)
+      : 75;
+
     return {
       totalInvoicedUsd: Number(globalInvoicedUsd.toFixed(2)),
       totalPaidUsd: Number(globalPaidUsd.toFixed(2)), // All-time settled income platform-wide
       totalPendingUsd: Number(globalPendingUsd.toFixed(2)),
       totalUnbilledUsd: Number(globalUnbilledUsd.toFixed(2)),
-      totalPlatformVolumeUsd: Number((globalInvoicedUsd + globalUnbilledUsd).toFixed(2)),
+      totalPlatformVolumeUsd: globalPlatformVolumeUsd,
+      totalRawCostUsd: Number(globalRawCostUsd.toFixed(2)),
+      totalProfitUsd: globalNetProfitUsd, // Platform Net Profit
+      totalSettledProfitUsd: globalSettledProfitUsd,
+      profitMarginPercent: globalProfitMarginPercent,
       totalSecurityDepositPoolUsd: Number(globalDepositPoolUsd.toFixed(2)),
       totalDepositUsedUsd: Number(globalDepositUsedUsd.toFixed(2)),
       invoicesCount: allInvoices.length,

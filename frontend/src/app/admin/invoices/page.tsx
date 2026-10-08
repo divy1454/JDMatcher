@@ -73,6 +73,10 @@ export interface AgencyBreakdownItem {
   totalPendingUsd: number;
   totalUnbilledUsd: number;
   totalLifetimeVolumeUsd: number;
+  totalRawCostUsd?: number;
+  totalProfitUsd?: number;
+  totalSettledProfitUsd?: number;
+  profitMarginPercent?: number;
   depositUsed: number;
   depositAllowed: number;
   depositRemaining: number;
@@ -91,6 +95,10 @@ interface AdminSummary {
   totalPendingUsd: number;
   totalUnbilledUsd: number;
   totalPlatformVolumeUsd: number;
+  totalRawCostUsd?: number;
+  totalProfitUsd?: number;
+  totalSettledProfitUsd?: number;
+  profitMarginPercent?: number;
   totalSecurityDepositPoolUsd?: number;
   totalDepositUsedUsd?: number;
   invoicesCount: number;
@@ -388,6 +396,19 @@ export default function AdminInvoicesPage() {
     ? selectedAgency.depositUsed
     : (summary?.totalDepositUsedUsd ?? 0);
 
+  // Super Admin Net Profit calculations
+  const displayProfitUsd = selectedAgency
+    ? (selectedAgency.totalProfitUsd ?? Number((selectedAgency.totalLifetimeVolumeUsd * 0.75).toFixed(2)))
+    : (summary?.totalProfitUsd ?? Number((displayPlatformVolumeUsd * 0.75).toFixed(2)));
+
+  const displayRawCostUsd = selectedAgency
+    ? (selectedAgency.totalRawCostUsd ?? Number((selectedAgency.totalLifetimeVolumeUsd * 0.25).toFixed(2)))
+    : (summary?.totalRawCostUsd ?? Number((displayPlatformVolumeUsd * 0.25).toFixed(2)));
+
+  const displayProfitMarginPercent = selectedAgency
+    ? (selectedAgency.profitMarginPercent ?? 75)
+    : (summary?.profitMarginPercent ?? 75);
+
   // Unique billing months from invoices for month filter
   const uniqueMonths = Array.from(new Set(invoices.map((i) => i.billingMonth).filter(Boolean))).sort().reverse();
 
@@ -459,7 +480,7 @@ export default function AdminInvoicesPage() {
                 </span>
               </h1>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Enterprise billing command center: income tracking, unbilled token usage, and UPI reconciliation.
+                Enterprise billing command center: profit tracking, unbilled token usage, and UPI reconciliation.
               </p>
             </div>
           </div>
@@ -485,8 +506,8 @@ export default function AdminInvoicesPage() {
         </div>
       </div>
 
-      {/* Custom Agency Selector Strip */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-3.5 shadow-xs backdrop-blur-xl">
+      {/* Custom Agency Selector Strip (z-40 so popover menu opens cleanly OVER below cards) */}
+      <div className="relative z-40 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-3.5 shadow-xs backdrop-blur-xl">
         <div className="flex items-center gap-2.5 w-full sm:w-auto">
           <Building2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 whitespace-nowrap">
@@ -524,7 +545,7 @@ export default function AdminInvoicesPage() {
 
       {/* Selected Agency Business Profile Card (When an Agency is Chosen) */}
       {selectedAgency && (
-        <div className="rounded-2xl border border-indigo-200 dark:border-indigo-500/30 bg-gradient-to-r from-indigo-50/90 via-white to-purple-50/80 dark:from-indigo-950/40 dark:via-slate-900/60 dark:to-purple-950/30 p-5 backdrop-blur-xl shadow-xs dark:shadow-lg">
+        <div className="relative z-20 rounded-2xl border border-indigo-200 dark:border-indigo-500/30 bg-gradient-to-r from-indigo-50/90 via-white to-purple-50/80 dark:from-indigo-950/40 dark:via-slate-900/60 dark:to-purple-950/30 p-5 backdrop-blur-xl shadow-xs dark:shadow-lg">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="flex items-center gap-2.5">
@@ -588,26 +609,28 @@ export default function AdminInvoicesPage() {
         </div>
       )}
 
-      {/* 6 Executive Real Business Financial KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {/* 1. All-Time Settled Income */}
+      {/* 6 Executive Real Business Financial KPI Cards (relative z-10) */}
+      <div className="relative z-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {/* 1. Net Profit (Instead of All-Time Income) */}
         <div className="rounded-2xl border border-emerald-200 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 via-white to-emerald-50/30 dark:from-emerald-950/30 dark:via-slate-900/40 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase font-bold tracking-wider text-emerald-700 dark:text-emerald-400">All-Time Income (Settled)</p>
+            <p className="text-xs uppercase font-bold tracking-wider text-emerald-700 dark:text-emerald-400">
+              {selectedAgency ? `${selectedAgency.organizationName} Net Profit` : 'My Net Profit (Platform)'}
+            </p>
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-              <DollarSign className="h-4 w-4" />
+              <TrendingUp className="h-4 w-4" />
             </div>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono">
-              ${displayIncomeUsd.toFixed(2)}
+              ${displayProfitUsd.toFixed(2)}
             </span>
             <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300 font-mono">
-              (₹{(displayIncomeUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+              (₹{(displayProfitUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
             </span>
           </div>
           <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-            {selectedAgency ? selectedAgency.paidCount : (summary?.paidInvoicesCount ?? paidCount)} statements settled via UPI
+            {displayProfitMarginPercent}% net margin • Volume ${displayPlatformVolumeUsd.toFixed(2)} − AI Cost ${displayRawCostUsd.toFixed(2)}
           </p>
         </div>
 
@@ -741,7 +764,7 @@ export default function AdminInvoicesPage() {
                 <tr>
                   <th className="pb-3 pl-2">Agency</th>
                   <th className="pb-3">Admin & Team</th>
-                  <th className="pb-3">All-Time Income</th>
+                  <th className="pb-3">Net Profit</th>
                   <th className="pb-3">Invoiced Volume</th>
                   <th className="pb-3">Unbilled (WIP)</th>
                   <th className="pb-3">Lifetime Gross</th>
@@ -765,10 +788,13 @@ export default function AdminInvoicesPage() {
 
                     <td className="py-4">
                       <div className="font-mono text-sm font-bold text-emerald-700 dark:text-emerald-400">
-                        ${agency.totalPaidUsd.toFixed(2)}
+                        ${(agency.totalProfitUsd ?? (agency.totalLifetimeVolumeUsd * 0.75)).toFixed(2)}
                       </div>
                       <div className="text-[11px] font-mono text-emerald-600/80 dark:text-emerald-500/80">
-                        ₹{(agency.totalPaidUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        ₹{((agency.totalProfitUsd ?? (agency.totalLifetimeVolumeUsd * 0.75)) * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {agency.profitMarginPercent ?? 75}% margin
                       </div>
                     </td>
 
@@ -859,7 +885,7 @@ export default function AdminInvoicesPage() {
       )}
 
       {/* Multi-Factor Filter Bar for Invoices Master Ledger */}
-      <div className="space-y-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 p-4 shadow-xs">
+      <div className="relative z-20 space-y-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 p-4 shadow-xs">
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
           {/* Search */}
           <div className="relative sm:col-span-4">
@@ -956,7 +982,7 @@ export default function AdminInvoicesPage() {
       </div>
 
       {/* Invoices List Table */}
-      <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-6 shadow-xs backdrop-blur-xl space-y-4">
+      <div className="relative z-10 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-6 shadow-xs backdrop-blur-xl space-y-4">
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white">Monthly Statements Master Ledger</h2>
