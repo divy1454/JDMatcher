@@ -318,29 +318,6 @@ export default function BillingHUDPage() {
           </p>
         </div>
 
-        /* {/* Resume Analyses */}
-        <div className="rounded-2xl border border-purple-200 dark:border-purple-500/20 bg-gradient-to-br from-purple-50/80 via-white to-purple-50/30 dark:from-purple-950/30 dark:via-slate-900/40 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold tracking-wider text-purple-700 dark:text-purple-400">
-              Resume Analyses
-            </span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
-              <FileText className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-purple-800 dark:text-purple-300 font-mono">
-              {hud.resumeAnalysisCount || 0}
-            </span>
-            <span className="text-xs font-semibold text-purple-600 dark:text-purple-300 font-mono">
-              ({formatCurrency(hud.resumeAnalysisBilledAmount || 0)})
-            </span>
-          </div>
-          <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400">
-            AI token cost: {formatCurrency(hud.resumeAnalysisBilledAmount || 0)}
-          </p>
-        </div>
-      </div> */
 
       {/* Banner Linking to Billing Ledger */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-violet-200 dark:border-violet-500/30 bg-gradient-to-r from-violet-50 via-white to-indigo-50 dark:from-violet-950/40 dark:via-slate-900 dark:to-indigo-950/30 p-4 shadow-xs backdrop-blur-xl">
