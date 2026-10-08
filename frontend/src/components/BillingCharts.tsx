@@ -125,16 +125,16 @@ export default function BillingCharts({
       {/* 2-Column Grid: Trend Chart & Verdict Chart */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Chart 1: Daily Evaluation Velocity (Area Chart) */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl lg:col-span-2">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-violet-400" />
-                <h3 className="text-sm font-bold text-white">Evaluations & Token Volume Trend</h3>
+                <Activity className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Evaluations & Token Volume Trend</h3>
               </div>
-              <p className="text-xs text-slate-400">Daily evaluation count over the last 14 days</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Daily evaluation count over the last 14 days</p>
             </div>
-            <span className="rounded-md border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-xs font-semibold text-violet-300">
+            <span className="rounded-md border border-violet-200 dark:border-violet-500/30 bg-violet-50 dark:bg-violet-500/10 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:text-violet-300">
               {totalEvaluations} Total Run
             </span>
           </div>
@@ -177,7 +177,7 @@ export default function BillingCharts({
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-xs text-slate-500">
+              <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
                 No evaluation trend history available yet.
               </div>
             )}
@@ -185,14 +185,14 @@ export default function BillingCharts({
         </div>
 
         {/* Chart 2: Match Verdict Distribution (Donut Chart) */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <PieChartIcon className="h-4 w-4 text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">Verdict Distribution</h3>
+                <PieChartIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Verdict Distribution</h3>
               </div>
-              <p className="text-xs text-slate-400">Match recommendation outcomes</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Match recommendation outcomes</p>
             </div>
           </div>
 
@@ -225,22 +225,22 @@ export default function BillingCharts({
                 <div className="flex items-center justify-center gap-4 text-xs">
                   <div className="flex items-center gap-1.5">
                     <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                    <span className="text-slate-300">
+                    <span className="text-slate-700 dark:text-slate-300">
                       Apply ({verdictStats?.applyCount || 0})
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                    <span className="text-slate-300">
+                    <span className="text-slate-700 dark:text-slate-300">
                       Skip ({verdictStats?.skipCount || 0})
                     </span>
                   </div>
                 </div>
               </>
             ) : (
-              <div className="text-center text-xs text-slate-500">
+              <div className="text-center text-xs text-slate-500 dark:text-slate-400">
                 <p>No evaluations recorded yet.</p>
-                <p className="mt-1 text-[11px] text-slate-600">Run candidate matches to populate verdicts.</p>
+                <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">Run candidate matches to populate verdicts.</p>
               </div>
             )}
           </div>
@@ -248,14 +248,14 @@ export default function BillingCharts({
       </div>
 
       {/* Chart 3: Recruiter Evaluation Share (Bar Chart) */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-indigo-400" />
-              <h3 className="text-sm font-bold text-white">Recruiter Activity Distribution</h3>
+              <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Recruiter Activity Distribution</h3>
             </div>
-            <p className="text-xs text-slate-400">Total evaluations executed per recruiter seat</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Total evaluations executed per recruiter seat</p>
           </div>
         </div>
 
@@ -284,7 +284,7 @@ export default function BillingCharts({
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex h-full items-center justify-center text-xs text-slate-500">
+            <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
               No recruiter activity recorded yet.
             </div>
           )}

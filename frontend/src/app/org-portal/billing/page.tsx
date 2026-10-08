@@ -26,7 +26,7 @@ import {
 const BillingCharts = dynamic(() => import('@/components/BillingCharts'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-64 w-full items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/40">
+    <div className="flex h-64 w-full items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40">
       <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet-500 border-t-transparent" />
     </div>
   ),
@@ -238,77 +238,112 @@ export default function BillingHUDPage() {
       {/* KPI Cards: Reconciled across HUD, Ledger, and Super Admin */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Outstanding Deposit Consumed */}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
-          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            <span>Deposit Consumed</span>
-            <span className="font-mono text-violet-600 dark:text-violet-400 font-bold">
-              {hud.usagePercentage}%
+        <div className="rounded-2xl border border-violet-200 dark:border-violet-500/20 bg-gradient-to-br from-violet-50/80 via-white to-violet-50/30 dark:from-violet-950/30 dark:via-slate-900/40 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase font-bold tracking-wider text-violet-700 dark:text-violet-400">
+              Deposit Consumed
             </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-500/10 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-500/20">
+              <CreditCard className="h-4 w-4" />
+            </div>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
               {formatCurrency(outstandingBalance)}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-              / {formatCurrency(hud.securityDepositLimit)} Limit
+            <span className="text-xs font-semibold text-violet-600 dark:text-violet-400 font-mono">
+              ({hud.usagePercentage}%)
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            Current unpaid balance towards deposit limit
+          <div className="mt-2.5 h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                hud.usagePercentage > 80
+                  ? 'bg-rose-500'
+                  : hud.usagePercentage > 50
+                  ? 'bg-amber-500'
+                  : 'bg-emerald-500'
+              }`}
+              style={{ width: `${Math.min(100, Math.max(3, hud.usagePercentage))}%` }}
+            />
+          </div>
+          <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400">
+            Limit: {formatCurrency(hud.securityDepositLimit)} • Balance: {formatCurrency(hud.remainingDeposit)} left
           </p>
         </div>
 
         {/* Cumulative Volume (All-Time) */}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
-          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            <span>Cumulative Volume</span>
-            <DollarSign className="h-4 w-4 text-emerald-500" />
+        <div className="rounded-2xl border border-indigo-200 dark:border-indigo-500/20 bg-gradient-to-br from-indigo-50/80 via-white to-indigo-50/30 dark:from-indigo-950/30 dark:via-slate-900/40 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase font-bold tracking-wider text-indigo-700 dark:text-indigo-400">
+              Cumulative Volume
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
+              <TrendingUp className="h-4 w-4" />
+            </div>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
               {formatCurrency(cumulativeSpend)}
             </span>
+            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-300 font-mono">
+              (₹{(cumulativeSpend * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+          <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400">
             Matches Monthly Billing Ledger grand total
           </p>
         </div>
 
         {/* Settled / Paid to Date */}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
-          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-            <span>Settled to Date</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        <div className="rounded-2xl border border-emerald-200 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50/80 via-white to-emerald-50/30 dark:from-emerald-950/30 dark:via-slate-900/40 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase font-bold tracking-wider text-emerald-700 dark:text-emerald-400">
+              Settled to Date
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+              <CheckCircle2 className="h-4 w-4" />
+            </div>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+            <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono">
               {formatCurrency(settledAmount)}
             </span>
+            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300 font-mono">
+              (₹{(settledAmount * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            Cleared via invoices & receipts
+          <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400">
+            Cleared via tax invoices & receipts
           </p>
         </div>
 
         {/* Resume Analyses */}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
-          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
-            <span>Resume Analyses</span>
-            <FileText className="h-4 w-4 text-purple-500" />
+        <div className="rounded-2xl border border-purple-200 dark:border-purple-500/20 bg-gradient-to-br from-purple-50/80 via-white to-purple-50/30 dark:from-purple-950/30 dark:via-slate-900/40 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase font-bold tracking-wider text-purple-700 dark:text-purple-400">
+              Resume Analyses
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
+              <FileText className="h-4 w-4" />
+            </div>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-2xl font-black text-purple-800 dark:text-purple-300 font-mono">
               {hud.resumeAnalysisCount || 0}
             </span>
+            <span className="text-xs font-semibold text-purple-600 dark:text-purple-300 font-mono">
+              ({formatCurrency(hud.resumeAnalysisBilledAmount || 0)})
+            </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            Cost: {formatCurrency(hud.resumeAnalysisBilledAmount || 0)}
+          <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400">
+            AI token cost: {formatCurrency(hud.resumeAnalysisBilledAmount || 0)}
           </p>
         </div>
       </div>
 
       {/* Banner Linking to Billing Ledger */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-violet-200 dark:border-violet-500/30 bg-gradient-to-r from-violet-50 via-white to-indigo-50 dark:from-violet-950/40 dark:via-slate-900 dark:to-indigo-950/30 p-4 shadow-sm backdrop-blur-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-violet-200 dark:border-violet-500/30 bg-gradient-to-r from-violet-50 via-white to-indigo-50 dark:from-violet-950/40 dark:via-slate-900 dark:to-indigo-950/30 p-4 shadow-xs backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-600/20 text-violet-600 dark:text-violet-400">
             <Receipt className="h-5 w-5" />
@@ -331,8 +366,8 @@ export default function BillingHUDPage() {
 
       {/* Security Deposit Limit Warning/Locked Alerts */}
       {hud.isLocked && (
-        <div className="flex items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-700 dark:text-red-300">
-          <Lock className="h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+        <div className="flex items-center gap-3 rounded-2xl border border-rose-300 dark:border-red-500/30 bg-rose-50/90 dark:bg-red-500/10 p-4 text-xs text-rose-800 dark:text-red-300 shadow-xs">
+          <Lock className="h-5 w-5 shrink-0 text-rose-600 dark:text-red-400" />
           <div>
             <strong className="font-bold">Evaluation Limit Reached:</strong>
             <p className="mt-0.5">
@@ -343,7 +378,7 @@ export default function BillingHUDPage() {
       )}
 
       {isWarning && (
-        <div className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-700 dark:text-amber-300">
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-300 dark:border-amber-500/30 bg-amber-50/90 dark:bg-amber-500/10 p-4 text-xs text-amber-800 dark:text-amber-300 shadow-xs">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
           <span>
             Attention: You have consumed {hud.usagePercentage}% of your security deposit limit. Settle with Super Admin soon to avoid automated evaluation pauses.
@@ -386,7 +421,7 @@ export default function BillingHUDPage() {
               placeholder="Search recruiter name or email..."
               value={recruiterSearch}
               onChange={(e) => setRecruiterSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-violet-500 focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:bg-white dark:focus:bg-slate-950 focus:border-violet-500 focus:outline-none"
             />
           </div>
 
@@ -432,7 +467,7 @@ export default function BillingHUDPage() {
             <select
               value={sortBy}
               onChange={(e: any) => setSortBy(e.target.value)}
-              className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 focus:border-violet-500 focus:outline-none"
+              className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 focus:border-violet-500 focus:outline-none"
             >
               <option value="cost_desc">Sort by Billed Cost (High to Low)</option>
               <option value="evals_desc">Sort by Evaluations (Most First)</option>
