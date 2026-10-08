@@ -23,6 +23,13 @@ import {
   X,
   ChevronDown,
   RefreshCw,
+  TrendingUp,
+  RotateCcw,
+  ArrowUpDown,
+  Zap,
+  Users,
+  Briefcase,
+  ArrowRight,
 } from 'lucide-react';
 import { BusinessInvoiceModal, InvoiceDetails } from '@/components/invoice/BusinessInvoiceModal';
 import { CustomDropdown, DropdownOption } from '@/components/ui/CustomDropdown';
@@ -54,13 +61,44 @@ interface OrgSimple {
   slug: string;
 }
 
+export interface AgencyBreakdownItem {
+  organizationId: string;
+  organizationName: string;
+  organizationSlug: string;
+  isActive: boolean;
+  adminEmail: string | null;
+  recruiterCount: number;
+  totalInvoicedUsd: number;
+  totalPaidUsd: number;
+  totalPendingUsd: number;
+  totalUnbilledUsd: number;
+  totalLifetimeVolumeUsd: number;
+  depositUsed: number;
+  depositAllowed: number;
+  depositRemaining: number;
+  depositUsagePercent: number;
+  invoicesCount: number;
+  paidCount: number;
+  pendingCount: number;
+  latestInvoiceMonth: string | null;
+  latestInvoiceStatus: string | null;
+  status: 'good_standing' | 'pending_payment' | 'deposit_alert';
+}
+
 interface AdminSummary {
   totalInvoicedUsd: number;
   totalPaidUsd: number;
   totalPendingUsd: number;
   totalUnbilledUsd: number;
   totalPlatformVolumeUsd: number;
+  totalSecurityDepositPoolUsd?: number;
+  totalDepositUsedUsd?: number;
   invoicesCount: number;
+  paidInvoicesCount?: number;
+  pendingInvoicesCount?: number;
+  agenciesCount?: number;
+  activeAgenciesCount?: number;
+  agenciesBreakdown?: AgencyBreakdownItem[];
 }
 
 export default function AdminInvoicesPage() {
@@ -74,6 +112,8 @@ export default function AdminInvoicesPage() {
   // Filters
   const [selectedOrgId, setSelectedOrgId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('month-desc');
   const [search, setSearch] = useState<string>('');
 
   // Invoice Preview Modal
@@ -200,7 +240,7 @@ export default function AdminInvoicesPage() {
           ? 'Bill generated and published! Agency can now download this invoice.'
           : 'Bill un-published. Invoice download is now hidden from the agency.'
       );
-      await fetchInvoices();
+      await fetchInvoices(true);
     } catch (err: any) {
       showNotification('error', 'Error toggling generation: ' + err.message);
     } finally {
@@ -223,7 +263,7 @@ export default function AdminInvoicesPage() {
           ? 'Invoice marked as PAID! Transaction receipt updated.'
           : 'Invoice status reverted to PAYMENT DUE.'
       );
-      await fetchInvoices();
+      await fetchInvoices(true);
     } catch (err: any) {
       showNotification('error', 'Failed to update invoice status: ' + err.message);
     } finally {
@@ -286,27 +326,97 @@ export default function AdminInvoicesPage() {
   };
 
   // Filtered Invoices
-  const filteredInvoices = invoices.filter((inv) => {
-    if (selectedOrgId !== 'all' && inv.organizationId !== selectedOrgId) return false;
-    if (selectedStatus === 'generated' && (!inv.isGenerated || inv.status === 'paid')) return false;
-    if (selectedStatus === 'paid' && inv.status !== 'paid') return false;
-    if (selectedStatus === 'unbilled' && inv.isGenerated) return false;
+  const filteredInvoices = invoices
+    .filter((inv) => {
+      if (selectedOrgId !== 'all' && inv.organizationId !== selectedOrgId) return false;
+      if (selectedStatus === 'generated' && (!inv.isGenerated || inv.status === 'paid')) return false;
+      if (selectedStatus === 'paid' && inv.status !== 'paid') return false;
+      if (selectedStatus === 'unbilled' && inv.isGenerated) return false;
+      if (selectedMonth !== 'all' && inv.billingMonth !== selectedMonth) return false;
 
-    if (search.trim()) {
-      const s = search.toLowerCase();
-      const matchName = inv.organizationName?.toLowerCase().includes(s);
-      const matchNum = inv.invoiceNumber?.toLowerCase().includes(s);
-      const matchMonth = inv.billingMonth?.toLowerCase().includes(s);
-      if (!matchName && !matchNum && !matchMonth) return false;
-    }
-    return true;
-  });
+      if (search.trim()) {
+        const s = search.toLowerCase();
+        const matchName = inv.organizationName?.toLowerCase().includes(s);
+        const matchNum = inv.invoiceNumber?.toLowerCase().includes(s);
+        const matchMonth = inv.billingMonth?.toLowerCase().includes(s);
+        if (!matchName && !matchNum && !matchMonth) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'month-desc') return b.billingMonth.localeCompare(a.billingMonth);
+      if (sortBy === 'month-asc') return a.billingMonth.localeCompare(b.billingMonth);
+      if (sortBy === 'amount-desc') return (parseFloat(b.totalAmountUsd) || 0) - (parseFloat(a.totalAmountUsd) || 0);
+      if (sortBy === 'amount-asc') return (parseFloat(a.totalAmountUsd) || 0) - (parseFloat(b.totalAmountUsd) || 0);
+      return 0;
+    });
 
-  // Calculate high level stats
+  // Calculate high level stats from invoices list
   const totalBilledUsd = invoices.reduce((acc, i) => acc + (parseFloat(i.totalAmountUsd) || 0), 0);
-  const totalBilledInr = invoices.reduce((acc, i) => acc + (parseFloat(i.totalAmountInr) || 0), 0);
   const paidCount = invoices.filter((i) => i.status === 'paid').length;
   const pendingCount = invoices.filter((i) => i.isGenerated && i.status !== 'paid').length;
+
+  // Selected agency lookup from breakdown
+  const selectedAgency = summary?.agenciesBreakdown?.find((a) => a.organizationId === selectedOrgId);
+
+  // Financial KPI calculations responsive to selected agency
+  const displayIncomeUsd = selectedAgency
+    ? selectedAgency.totalPaidUsd
+    : (summary?.totalPaidUsd ?? 0);
+
+  const displayBilledUsd = selectedAgency
+    ? selectedAgency.totalInvoicedUsd
+    : (summary?.totalInvoicedUsd ?? totalBilledUsd);
+
+  const displayUnbilledUsd = selectedAgency
+    ? selectedAgency.totalUnbilledUsd
+    : (summary?.totalUnbilledUsd ?? 0);
+
+  const displayPlatformVolumeUsd = selectedAgency
+    ? selectedAgency.totalLifetimeVolumeUsd
+    : (summary?.totalPlatformVolumeUsd ?? (displayBilledUsd + displayUnbilledUsd));
+
+  const displayPendingUsd = selectedAgency
+    ? selectedAgency.totalPendingUsd
+    : (summary?.totalPendingUsd ?? 0);
+
+  const displaySecurityDepositPool = selectedAgency
+    ? selectedAgency.depositAllowed
+    : (summary?.totalSecurityDepositPoolUsd ?? 500);
+
+  const displayDepositUsed = selectedAgency
+    ? selectedAgency.depositUsed
+    : (summary?.totalDepositUsedUsd ?? 0);
+
+  // Unique billing months from invoices for month filter
+  const uniqueMonths = Array.from(new Set(invoices.map((i) => i.billingMonth).filter(Boolean))).sort().reverse();
+
+  const monthFilterOptions: DropdownOption[] = [
+    { value: 'all', label: 'All Billing Months' },
+    ...uniqueMonths.map((m) => ({
+      value: m,
+      label: `Month: ${m}`,
+    })),
+  ];
+
+  const sortFilterOptions: DropdownOption[] = [
+    { value: 'month-desc', label: 'Sort: Newest Month' },
+    { value: 'month-asc', label: 'Sort: Oldest Month' },
+    { value: 'amount-desc', label: 'Sort: Highest Amount' },
+    { value: 'amount-asc', label: 'Sort: Lowest Amount' },
+  ];
+
+  const resetFilters = () => {
+    setSelectedOrgId('all');
+    setSelectedStatus('all');
+    setSelectedMonth('all');
+    setSearch('');
+    setSortBy('month-desc');
+  };
+
+  const hasActiveFilters = Boolean(
+    selectedOrgId !== 'all' || selectedStatus !== 'all' || selectedMonth !== 'all' || search.trim() || sortBy !== 'month-desc'
+  );
 
   return (
     <div className="space-y-8">
@@ -337,13 +447,22 @@ export default function AdminInvoicesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
-            <Receipt className="h-6 w-6 text-indigo-400" />
-            <span>Invoices & Billing</span>
-          </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Manage monthly billing statements, invoice status, and downloads.
-          </p>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+              <Receipt className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+                <span>Multi-Agency Invoicing & Billing</span>
+                <span className="rounded-full bg-indigo-500/10 border border-indigo-500/30 px-2.5 py-0.5 text-xs font-bold text-indigo-400">
+                  {organizations.length} Agencies
+                </span>
+              </h1>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Enterprise billing command center: income tracking, unbilled token usage, and UPI reconciliation.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -366,66 +485,396 @@ export default function AdminInvoicesPage() {
         </div>
       </div>
 
-      {/* KPI Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Total Platform Volume */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Total Platform Volume</p>
+      {/* Custom Agency Selector Strip */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-3.5 backdrop-blur-xl">
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+          <Building2 className="h-4 w-4 text-indigo-400 shrink-0" />
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-300 whitespace-nowrap">
+            Billing Portfolio Scope:
+          </span>
+          <div className="w-full sm:w-64">
+            <CustomDropdown
+              size="sm"
+              value={selectedOrgId}
+              onChange={setSelectedOrgId}
+              options={[
+                { value: 'all', label: 'All Agencies (Global Portfolio)', badge: `${organizations.length}` },
+                ...organizations.map((org) => ({
+                  value: org.id,
+                  label: org.name,
+                  sublabel: org.slug,
+                })),
+              ]}
+              icon={<Building2 className="h-3.5 w-3.5" />}
+              placeholder="Select Agency"
+            />
+          </div>
+        </div>
+
+        {selectedOrgId !== 'all' && (
+          <button
+            onClick={() => setSelectedOrgId('all')}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:underline shrink-0"
+          >
+            <RotateCcw className="h-3 w-3" />
+            <span>Switch to Global All Agencies View</span>
+          </button>
+        )}
+      </div>
+
+      {/* Selected Agency Business Profile Card (When an Agency is Chosen) */}
+      {selectedAgency && (
+        <div className="rounded-2xl border border-indigo-500/30 bg-gradient-to-r from-indigo-950/40 via-slate-900/60 to-purple-950/30 p-5 backdrop-blur-xl shadow-lg">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  <Building2 className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <span>{selectedAgency.organizationName}</span>
+                    <span className="text-xs font-mono text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-500/20">
+                      @{selectedAgency.organizationSlug}
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5 flex flex-wrap items-center gap-2">
+                    <span>Admin: <strong className="text-slate-300">{selectedAgency.adminEmail || 'Admin Account'}</strong></span>
+                    <span>•</span>
+                    <span>Active Recruiter Seats: <strong className="text-indigo-300">{selectedAgency.recruiterCount}</strong></span>
+                    <span>•</span>
+                    <span>Latest Month: <strong className="text-slate-300">{selectedAgency.latestInvoiceMonth || 'None'}</strong></span>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Deposit meter */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-3.5 py-2">
+                <div className="flex items-center justify-between gap-4 text-xs">
+                  <span className="text-slate-400">Security Deposit</span>
+                  <span className="font-mono font-bold text-white">
+                    ${selectedAgency.depositUsed.toFixed(2)} / ${selectedAgency.depositAllowed.toFixed(2)}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 w-44 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      selectedAgency.depositUsagePercent > 80
+                        ? 'bg-rose-500'
+                        : selectedAgency.depositUsagePercent > 50
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(3, selectedAgency.depositUsagePercent))}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Quick Action: Generate Bill for this Agency */}
+              <button
+                onClick={() => {
+                  setGenerateForm((prev) => ({ ...prev, organizationId: selectedAgency.organizationId }));
+                  setIsGenerateModalOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/30 hover:bg-indigo-500 transition"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Generate {selectedAgency.organizationName} Bill</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6 Executive Real Business Financial KPI Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {/* 1. All-Time Settled Income */}
+        <div className="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/30 to-slate-900/60 p-5 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase font-bold tracking-wider text-emerald-400">All-Time Income (Settled)</p>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <DollarSign className="h-4 w-4" />
+            </div>
+          </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-white font-mono">
-              ${(summary?.totalPlatformVolumeUsd ?? totalBilledUsd).toFixed(2)}
+            <span className="text-2xl font-black text-emerald-400 font-mono">
+              ${displayIncomeUsd.toFixed(2)}
             </span>
-            <span className="text-xs font-semibold text-emerald-400 font-mono">
-              (₹{((summary?.totalPlatformVolumeUsd ?? totalBilledUsd) * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            <span className="text-xs font-semibold text-emerald-300 font-mono">
+              (₹{(displayIncomeUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Invoiced: ${summary?.totalInvoicedUsd.toFixed(2) || totalBilledUsd.toFixed(2)} • Unbilled: ${summary?.totalUnbilledUsd.toFixed(2) || '0.00'}
+          <p className="mt-1 text-[11px] text-slate-400">
+            {selectedAgency ? selectedAgency.paidCount : (summary?.paidInvoicesCount ?? paidCount)} statements settled via UPI
           </p>
         </div>
 
-        {/* Paid In Full */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-emerald-400">Paid In Full</p>
-          <p className="mt-2 text-2xl font-black text-emerald-400 font-mono">
-            ${(summary?.totalPaidUsd ?? 0).toFixed(2)}
+        {/* 2. Total Invoiced Volume */}
+        <div className="rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/30 to-slate-900/60 p-5 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase font-bold tracking-wider text-indigo-400">Total Billed (Invoiced)</p>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <Receipt className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-white font-mono">
+              ${displayBilledUsd.toFixed(2)}
+            </span>
+            <span className="text-xs font-semibold text-indigo-300 font-mono">
+              (₹{(displayBilledUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            {selectedAgency ? selectedAgency.invoicesCount : (summary?.invoicesCount ?? invoices.length)} billing statements issued
           </p>
-          <p className="mt-1 text-[11px] text-slate-500">{paidCount} settled statements</p>
         </div>
 
-        {/* Pending Settlement */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-amber-400">Pending Settlement</p>
-          <p className="mt-2 text-2xl font-black text-amber-400 font-mono">
-            ${(summary?.totalPendingUsd ?? 0).toFixed(2)}
+        {/* 3. Ongoing Unbilled (WIP) */}
+        <div className="rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-950/30 to-slate-900/60 p-5 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase font-bold tracking-wider text-sky-400">Ongoing Unbilled (WIP)</p>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
+              <Clock className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-sky-400 font-mono">
+              ${displayUnbilledUsd.toFixed(2)}
+            </span>
+            <span className="text-xs font-semibold text-sky-300 font-mono">
+              (₹{(displayUnbilledUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Live token ledger usage not yet billed
           </p>
-          <p className="mt-1 text-[11px] text-slate-500">{pendingCount} awaiting UPI payment</p>
         </div>
 
-        {/* Invoices Issued */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
-          <p className="text-xs uppercase font-bold tracking-wider text-slate-400">Invoices Issued</p>
-          <p className="mt-2 text-2xl font-black text-white font-mono">{invoices.length}</p>
-          <p className="mt-1 text-[11px] text-slate-500">Official billing records</p>
+        {/* 4. Total Lifetime Volume */}
+        <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-950/30 to-slate-900/60 p-5 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase font-bold tracking-wider text-purple-400">Total Lifetime Volume</p>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              <TrendingUp className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-purple-300 font-mono">
+              ${displayPlatformVolumeUsd.toFixed(2)}
+            </span>
+            <span className="text-xs font-semibold text-purple-200 font-mono">
+              (₹{(displayPlatformVolumeUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Invoiced (${displayBilledUsd.toFixed(2)}) + Unbilled (${displayUnbilledUsd.toFixed(2)})
+          </p>
+        </div>
+
+        {/* 5. Pending Receivables */}
+        <div className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-950/30 to-slate-900/60 p-5 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase font-bold tracking-wider text-amber-400">Pending Receivables</p>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-amber-400 font-mono">
+              ${displayPendingUsd.toFixed(2)}
+            </span>
+            <span className="text-xs font-semibold text-amber-300 font-mono">
+              (₹{(displayPendingUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            {selectedAgency ? selectedAgency.pendingCount : (summary?.pendingInvoicesCount ?? pendingCount)} awaiting UPI settlement
+          </p>
+        </div>
+
+        {/* 6. Security Deposits Buffer */}
+        <div className="rounded-2xl border border-teal-500/20 bg-gradient-to-br from-teal-950/30 to-slate-900/60 p-5 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase font-bold tracking-wider text-teal-400">Security Deposit Pool</p>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20">
+              <ShieldCheck className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-white font-mono">
+              ${displaySecurityDepositPool.toFixed(2)}
+            </span>
+            <span className="text-xs font-semibold text-teal-300 font-mono">
+              (Used: ${displayDepositUsed.toFixed(2)})
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Available buffer: ${(displaySecurityDepositPool - displayDepositUsed).toFixed(2)}
+          </p>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search agency, invoice #..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
-          />
-        </div>
+      {/* Multi-Agency Billing Portfolio Matrix (When viewing All Agencies) */}
+      {selectedOrgId === 'all' && summary?.agenciesBreakdown && summary.agenciesBreakdown.length > 0 && (
+        <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-xl shadow-xl space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-4">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-indigo-400" />
+                <span>Multi-Agency Billing Portfolio Matrix</span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Executive portfolio matrix showing settled income, invoiced vs unbilled consumption, and deposit security health.
+              </p>
+            </div>
+            <span className="text-xs font-mono text-slate-400">
+              {summary.agenciesBreakdown.length} Registered Agencies
+            </span>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="pb-3 pl-2">Agency</th>
+                  <th className="pb-3">Admin & Team</th>
+                  <th className="pb-3">All-Time Income</th>
+                  <th className="pb-3">Invoiced Volume</th>
+                  <th className="pb-3">Unbilled (WIP)</th>
+                  <th className="pb-3">Lifetime Gross</th>
+                  <th className="pb-3">Deposit Exposure</th>
+                  <th className="pb-3 text-center">Status</th>
+                  <th className="pb-3 pr-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {summary.agenciesBreakdown.map((agency) => (
+                  <tr key={agency.organizationId} className="hover:bg-slate-800/40 transition">
+                    <td className="py-4 pl-2">
+                      <div className="font-bold text-white">{agency.organizationName}</div>
+                      <div className="text-[11px] font-mono text-indigo-400">@{agency.organizationSlug}</div>
+                    </td>
+
+                    <td className="py-4">
+                      <div className="text-xs text-slate-300 font-medium">{agency.adminEmail || 'Admin'}</div>
+                      <div className="text-[11px] text-slate-500">{agency.recruiterCount} active seat{agency.recruiterCount === 1 ? '' : 's'}</div>
+                    </td>
+
+                    <td className="py-4">
+                      <div className="font-mono text-sm font-bold text-emerald-400">
+                        ${agency.totalPaidUsd.toFixed(2)}
+                      </div>
+                      <div className="text-[11px] font-mono text-emerald-500/80">
+                        ₹{(agency.totalPaidUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </div>
+                    </td>
+
+                    <td className="py-4">
+                      <div className="font-mono text-sm font-bold text-slate-200">
+                        ${agency.totalInvoicedUsd.toFixed(2)}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {agency.invoicesCount} statement{agency.invoicesCount === 1 ? '' : 's'}
+                      </div>
+                    </td>
+
+                    <td className="py-4">
+                      <div className="font-mono text-sm font-bold text-sky-400">
+                        ${agency.totalUnbilledUsd.toFixed(2)}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Live ledger
+                      </div>
+                    </td>
+
+                    <td className="py-4">
+                      <div className="font-mono text-sm font-bold text-purple-300">
+                        ${agency.totalLifetimeVolumeUsd.toFixed(2)}
+                      </div>
+                      <div className="text-[11px] font-mono text-purple-400/80">
+                        ₹{(agency.totalLifetimeVolumeUsd * 86.5).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </div>
+                    </td>
+
+                    <td className="py-4">
+                      <div className="text-xs font-mono font-bold text-white">
+                        ${agency.depositUsed.toFixed(2)} / ${agency.depositAllowed.toFixed(2)}
+                      </div>
+                      <div className="mt-1 h-1.5 w-24 rounded-full bg-slate-800 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            agency.depositUsagePercent > 80 ? 'bg-rose-500' : agency.depositUsagePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(4, agency.depositUsagePercent))}%` }}
+                        />
+                      </div>
+                    </td>
+
+                    <td className="py-4 text-center">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                          agency.status === 'good_standing'
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            : agency.status === 'pending_payment'
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                            : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                        }`}
+                      >
+                        {agency.status === 'good_standing' ? 'Healthy' : agency.status === 'pending_payment' ? 'Payment Due' : 'Deposit Alert'}
+                      </span>
+                    </td>
+
+                    <td className="py-4 pr-2 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setSelectedOrgId(agency.organizationId)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                          title="Focus on this agency's billing statements"
+                        >
+                          <span>Focus Agency</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setGenerateForm((prev) => ({ ...prev, organizationId: agency.organizationId }));
+                            setIsGenerateModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-xl bg-indigo-600/20 border border-indigo-500/40 px-2.5 py-1 text-xs font-semibold text-indigo-300 hover:bg-indigo-600 hover:text-white transition"
+                          title="Generate bill for this agency"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span>Bill</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-Factor Filter Bar for Invoices Master Ledger */}
+      <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+          {/* Search */}
+          <div className="relative sm:col-span-4">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search agency, invoice #, month..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+
           {/* Agency Filter */}
-          <div className="w-full sm:w-52">
+          <div className="sm:col-span-3">
             <CustomDropdown
               size="sm"
               value={selectedOrgId}
@@ -444,7 +893,7 @@ export default function AdminInvoicesPage() {
           </div>
 
           {/* Status Filter */}
-          <div className="w-full sm:w-48">
+          <div className="sm:col-span-3">
             <CustomDropdown
               size="sm"
               value={selectedStatus}
@@ -459,6 +908,50 @@ export default function AdminInvoicesPage() {
               placeholder="Filter by Status"
             />
           </div>
+
+          {/* Month Filter */}
+          <div className="sm:col-span-2">
+            <CustomDropdown
+              size="sm"
+              value={selectedMonth}
+              onChange={setSelectedMonth}
+              options={monthFilterOptions}
+              icon={<Calendar className="h-3.5 w-3.5" />}
+              placeholder="Filter by Month"
+            />
+          </div>
+        </div>
+
+        {/* Sorting & Filter Reset */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">Order by:</span>
+            <div className="w-48">
+              <CustomDropdown
+                size="sm"
+                value={sortBy}
+                onChange={setSortBy}
+                options={sortFilterOptions}
+                icon={<ArrowUpDown className="h-3.5 w-3.5" />}
+                placeholder="Sort By"
+              />
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400">
+                Filtered: {filteredInvoices.length} of {invoices.length} statements
+              </span>
+              <button
+                onClick={resetFilters}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:underline"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>Clear all filters</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

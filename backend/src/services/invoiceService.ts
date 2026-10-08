@@ -584,26 +584,29 @@ export class InvoiceService {
 
   /**
    * Super Admin summary of platform billing:
-   * Reconciles invoiced volume, unbilled token usage, and total platform volume.
+   * Reconciles all-time income, invoiced volume, unbilled token usage, deposit health, and multi-agency breakdown.
    */
-  static async getAdminInvoiceSummary() {
+  static async getAdminInvoiceSummary(filterOrgId?: string) {
+    const allOrgs = await db.select().from(organizations);
+    const allUsers = await db.select({
+      id: users.id,
+      organizationId: users.organizationId,
+      role: users.role,
+      email: users.email,
+    }).from(users);
     const allInvoices = await db.select().from(invoices);
-    let totalInvoicedUsd = 0;
-    let totalPaidUsd = 0;
-    let totalPendingUsd = 0;
-    const invoicedMonthsSet = new Set<string>();
 
-    for (const inv of allInvoices) {
-      const amt = parseFloat(inv.totalAmountUsd) || 0;
-      totalInvoicedUsd += amt;
-      invoicedMonthsSet.add(`${inv.organizationId}_${inv.billingMonth}`);
-      if (inv.status === 'paid') {
-        totalPaidUsd += amt;
-      } else if (inv.status !== 'void') {
-        totalPendingUsd += amt;
-      }
+    // Group users by org
+    const orgUsersMap = new Map<string, { recruiters: number; adminEmail: string | null }>();
+    for (const u of allUsers) {
+      if (!u.organizationId) continue;
+      const existing = orgUsersMap.get(u.organizationId) || { recruiters: 0, adminEmail: null };
+      if (u.role === 'recruiter') existing.recruiters += 1;
+      if (u.role === 'org_admin' && !existing.adminEmail) existing.adminEmail = u.email;
+      orgUsersMap.set(u.organizationId, existing);
     }
 
+    // Ledger consumption by org and month
     const ledgerAggs = await db
       .select({
         organizationId: tokenConsumptionLedger.organizationId,
@@ -613,20 +616,123 @@ export class InvoiceService {
       .from(tokenConsumptionLedger)
       .groupBy(tokenConsumptionLedger.organizationId, sql`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM')`);
 
-    let totalUnbilledUsd = 0;
+    // Invoices by org
+    const orgInvoicesMap = new Map<string, typeof allInvoices>();
+    const invoicedMonthsSet = new Set<string>();
+
+    for (const inv of allInvoices) {
+      invoicedMonthsSet.add(`${inv.organizationId}_${inv.billingMonth}`);
+      const list = orgInvoicesMap.get(inv.organizationId) || [];
+      list.push(inv);
+      orgInvoicesMap.set(inv.organizationId, list);
+    }
+
+    // Unbilled ledger costs by org
+    const orgUnbilledMap = new Map<string, number>();
     for (const l of ledgerAggs) {
       if (!invoicedMonthsSet.has(`${l.organizationId}_${l.monthStr}`)) {
-        totalUnbilledUsd += l.totalCostUsd;
+        const cur = orgUnbilledMap.get(l.organizationId) || 0;
+        orgUnbilledMap.set(l.organizationId, cur + l.totalCostUsd);
       }
     }
 
+    let globalInvoicedUsd = 0;
+    let globalPaidUsd = 0;
+    let globalPendingUsd = 0;
+    let globalUnbilledUsd = 0;
+    let globalDepositPoolUsd = 0;
+    let globalDepositUsedUsd = 0;
+    let paidInvoicesCount = 0;
+    let pendingInvoicesCount = 0;
+
+    const agenciesBreakdown = allOrgs.map((org) => {
+      const orgInvs = orgInvoicesMap.get(org.id) || [];
+      const userMeta = orgUsersMap.get(org.id) || { recruiters: 0, adminEmail: null };
+      const unbilledUsd = orgUnbilledMap.get(org.id) || 0;
+
+      let orgInvoicedUsd = 0;
+      let orgPaidUsd = 0;
+      let orgPendingUsd = 0;
+      let orgPaidCount = 0;
+      let orgPendingCount = 0;
+
+      // Sort invoices by billingMonth desc
+      orgInvs.sort((a, b) => b.billingMonth.localeCompare(a.billingMonth));
+      const latestInv = orgInvs[0];
+
+      for (const inv of orgInvs) {
+        const amt = parseFloat(inv.totalAmountUsd) || 0;
+        orgInvoicedUsd += amt;
+        if (inv.status === 'paid') {
+          orgPaidUsd += amt;
+          orgPaidCount += 1;
+        } else if (inv.status !== 'void') {
+          orgPendingUsd += amt;
+          orgPendingCount += 1;
+        }
+      }
+
+      const depositAllowed = parseFloat(org.securityDepositLimit) || 500;
+      const depositUsed = Number((orgPendingUsd + unbilledUsd).toFixed(2));
+      const depositRemaining = Math.max(0, Number((depositAllowed - depositUsed).toFixed(2)));
+      const depositUsagePercent = depositAllowed > 0 ? Math.min(100, Math.round((depositUsed / depositAllowed) * 100)) : 0;
+      const lifetimeUsd = Number((orgInvoicedUsd + unbilledUsd).toFixed(2));
+
+      globalInvoicedUsd += orgInvoicedUsd;
+      globalPaidUsd += orgPaidUsd;
+      globalPendingUsd += orgPendingUsd;
+      globalUnbilledUsd += unbilledUsd;
+      globalDepositPoolUsd += depositAllowed;
+      globalDepositUsedUsd += depositUsed;
+      paidInvoicesCount += orgPaidCount;
+      pendingInvoicesCount += orgPendingCount;
+
+      let status: 'good_standing' | 'pending_payment' | 'deposit_alert' = 'good_standing';
+      if (depositUsagePercent >= 85) {
+        status = 'deposit_alert';
+      } else if (orgPendingCount > 0) {
+        status = 'pending_payment';
+      }
+
+      return {
+        organizationId: org.id,
+        organizationName: org.name,
+        organizationSlug: org.slug,
+        isActive: org.isActive,
+        adminEmail: userMeta.adminEmail,
+        recruiterCount: userMeta.recruiters,
+        totalInvoicedUsd: Number(orgInvoicedUsd.toFixed(2)),
+        totalPaidUsd: Number(orgPaidUsd.toFixed(2)), // All-Time Settled Income
+        totalPendingUsd: Number(orgPendingUsd.toFixed(2)), // Pending Due
+        totalUnbilledUsd: Number(unbilledUsd.toFixed(2)), // Ongoing unbilled WIP
+        totalLifetimeVolumeUsd: lifetimeUsd,
+        depositUsed,
+        depositAllowed,
+        depositRemaining,
+        depositUsagePercent,
+        invoicesCount: orgInvs.length,
+        paidCount: orgPaidCount,
+        pendingCount: orgPendingCount,
+        latestInvoiceMonth: latestInv ? latestInv.billingMonth : null,
+        latestInvoiceStatus: latestInv ? latestInv.status : null,
+        status,
+      };
+    });
+
     return {
-      totalInvoicedUsd: Number(totalInvoicedUsd.toFixed(2)),
-      totalPaidUsd: Number(totalPaidUsd.toFixed(2)),
-      totalPendingUsd: Number(totalPendingUsd.toFixed(2)),
-      totalUnbilledUsd: Number(totalUnbilledUsd.toFixed(2)),
-      totalPlatformVolumeUsd: Number((totalInvoicedUsd + totalUnbilledUsd).toFixed(2)),
+      totalInvoicedUsd: Number(globalInvoicedUsd.toFixed(2)),
+      totalPaidUsd: Number(globalPaidUsd.toFixed(2)), // All-time settled income platform-wide
+      totalPendingUsd: Number(globalPendingUsd.toFixed(2)),
+      totalUnbilledUsd: Number(globalUnbilledUsd.toFixed(2)),
+      totalPlatformVolumeUsd: Number((globalInvoicedUsd + globalUnbilledUsd).toFixed(2)),
+      totalSecurityDepositPoolUsd: Number(globalDepositPoolUsd.toFixed(2)),
+      totalDepositUsedUsd: Number(globalDepositUsedUsd.toFixed(2)),
       invoicesCount: allInvoices.length,
+      paidInvoicesCount,
+      pendingInvoicesCount,
+      agenciesCount: allOrgs.length,
+      activeAgenciesCount: allOrgs.filter((o) => o.isActive).length,
+      agenciesBreakdown,
     };
   }
 }

@@ -91,7 +91,8 @@ export async function invoicesRoutes(fastify: FastifyInstance) {
     { preHandler: [authGuard, requireRole(['super_admin'])] },
     async (request, reply) => {
       try {
-        const summary = await InvoiceService.getAdminInvoiceSummary();
+        const query = request.query as { organizationId?: string } | undefined;
+        const summary = await InvoiceService.getAdminInvoiceSummary(query?.organizationId);
         return reply.send(summary);
       } catch (err: any) {
         request.log.error(err, 'Failed to fetch invoice summary');

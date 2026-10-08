@@ -8,7 +8,7 @@ import { sql } from 'drizzle-orm';
 import { organizations, users, tokenConsumptionLedger, matchedJds } from '../db/schema.js';
 
 const statsQuerySchema = z.object({
-  timeframe: z.enum(['1h', '24h', '7d', '30d']).default('24h'),
+  timeframe: z.enum(['1h', '24h', '7d', '30d', 'all']).default('24h'),
   organizationId: z.string().uuid().optional(),
 });
 
