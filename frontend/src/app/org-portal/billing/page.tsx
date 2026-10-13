@@ -317,7 +317,7 @@ export default function BillingHUDPage() {
             Cleared via tax invoices & receipts
           </p>
         </div>
-
+      </div>
 
       {/* Banner Linking to Billing Ledger */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-violet-200 dark:border-violet-500/30 bg-gradient-to-r from-violet-50 via-white to-indigo-50 dark:from-violet-950/40 dark:via-slate-900 dark:to-indigo-950/30 p-4 shadow-xs backdrop-blur-xl">

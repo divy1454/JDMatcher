@@ -44,6 +44,10 @@ export function startFormObserver(options: FormObserverOptions): void {
         for (let i = 0; i < mutation.addedNodes.length; i++) {
           const node = mutation.addedNodes[i];
           if (node instanceof HTMLElement) {
+            // Ignore toast notifications and internal JDMatcher elements
+            if (node.id === 'jdm-autofill-toast-root' || node.closest?.('#jdm-autofill-toast-root, .jdm-autofill-toast-container')) {
+              continue;
+            }
             // Check if node itself or any descendants are inputs/selects/textareas
             if (
               node.matches('input, select, textarea, form, fieldset, [data-automation-id]') ||

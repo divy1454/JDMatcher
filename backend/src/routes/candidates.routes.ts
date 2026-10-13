@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { candidates, users } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
+import { GeminiService } from '../services/geminiService.js';
 
 const candidateSchema = z.object({
   fullName: z.string().min(2).max(255),
@@ -87,8 +88,13 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
           recruiterEmail: users.email,
           isActive: candidates.isActive,
           createdAt: candidates.createdAt,
+          visaStatus: candidates.visaStatus,
+          workPreference: candidates.workPreference,
+          resumeFileName: candidates.resumeFileName,
+          hasResumeFile: sql<boolean>`${candidates.resumeFileBase64} is not null`,
+          hasStructuredProfile: sql<boolean>`${candidates.structuredProfile} is not null and ${candidates.structuredProfile} != '{}'::jsonb`,
           // Return character count instead of leaking full resume text
-          resumeLength: sql<number>`length(${candidates.rawResumeText})`,
+          resumeLength: sql<number>`coalesce(length(${candidates.rawResumeText}), 0)`,
         })
         .from(candidates)
         .leftJoin(users, eq(candidates.createdByRecruiterId, users.id))
@@ -261,6 +267,52 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
       }
 
       return reply.send({ success: true, message: 'Candidate deleted successfully' });
+    }
+  );
+
+  // POST /api/candidates/extract-profile (AI-extract 7-part profile from raw resume text)
+  fastify.post(
+    '/extract-profile',
+    { preHandler: [authGuard, requireRole(['org_admin', 'recruiter'])] },
+    async (request, reply) => {
+      const user = request.user!;
+      const body = request.body as {
+        rawResumeText: string;
+        fullName?: string;
+        primaryTitle?: string;
+        visaStatus?: string;
+        yearsOfExperience?: number;
+        keySkills?: string[];
+      };
+
+      if (!body.rawResumeText || body.rawResumeText.trim().length < 20) {
+        return reply.status(400).send({
+          error: 'INVALID_PAYLOAD',
+          message: 'Raw resume text must be at least 20 characters',
+        });
+      }
+
+      try {
+        const result = await GeminiService.extractSpeedyApplyProfile(body.rawResumeText, {
+          fullName: body.fullName,
+          primaryTitle: body.primaryTitle,
+          visaStatus: body.visaStatus,
+          yearsOfExperience: body.yearsOfExperience,
+          keySkills: body.keySkills,
+        });
+
+        return reply.send({
+          success: true,
+          profile: result.profile,
+          usage: result.usage,
+        });
+      } catch (err: any) {
+        request.log.error(err, 'Failed to extract candidate profile via AI');
+        return reply.status(500).send({
+          error: 'AI_EXTRACTION_FAILED',
+          message: err.message || 'Failed to extract candidate profile',
+        });
+      }
     }
   );
 };

@@ -4,7 +4,13 @@ import { resolveTier1Field } from './tier1-resolver';
 import { resolveSavedResponse } from './saved-response-matcher';
 import { resolveTier2Fields } from './tier2-resolver';
 import { injectFieldValue } from './dom-injector';
-import { markElementAsAutoFilled, showAutoFillToast } from './visual-feedback';
+import {
+  markElementAsAutoFilled,
+  showAutoFillStartingToast,
+  showAutoFillCompletedToast,
+  showAutoFillInfoToast,
+  dismissAutoFillToast,
+} from './visual-feedback';
 import { startFormObserver, isElementAlreadyProcessed, markElementProcessed } from './observer';
 import './content-autofill.css';
 
@@ -13,6 +19,8 @@ console.log('[JDMatcher Enterprise] Auto-Fill Engine initialized in frame:', win
 let currentProfile: CandidateAutoFillProfile | null = null;
 let isAutoFillEnabled = true;
 let isExecutionInProgress = false;
+let lastProcessedUrl = '';
+let hasResumeBeenInjectedOnPage = false;
 
 const RECOGNIZED_ATS_DOMAINS = [
   'linkedin.com',
@@ -84,6 +92,16 @@ export async function executeAutoFillCycle(isManualTrigger = false): Promise<Aut
     durationMs: 0,
   };
 
+  // Reset file injection lock when URL changes or user clicks manual trigger
+  const currentHref = window.location.href;
+  if (currentHref !== lastProcessedUrl) {
+    lastProcessedUrl = currentHref;
+    hasResumeBeenInjectedOnPage = false;
+  }
+  if (isManualTrigger) {
+    hasResumeBeenInjectedOnPage = false;
+  }
+
   // Zero-Click Domain Guard: automatic zero-click only activates on recognized ATS / job domains
   if (!isManualTrigger && !isRecognizedJobBoardOrAts()) {
     return stats;
@@ -97,6 +115,9 @@ export async function executeAutoFillCycle(isManualTrigger = false): Promise<Aut
     // Try reloading profile once from storage
     await loadStoredState();
     if (!currentProfile) {
+      if (isManualTrigger) {
+        showAutoFillInfoToast('No Candidate Selected', 'Please select an active candidate in the JDMatcher sidebar first.');
+      }
       return stats;
     }
   }
@@ -111,8 +132,14 @@ export async function executeAutoFillCycle(isManualTrigger = false): Promise<Aut
     const scan = scanApplicationForm(document);
     if (!scan.isJobApplication || scan.fields.length === 0) {
       isExecutionInProgress = false;
+      if (isManualTrigger) {
+        showAutoFillInfoToast('No Application Form Found', 'No supported job application inputs detected on this page.');
+      }
       return stats;
     }
+
+    // Trigger visual pop-up notification that auto-fill is RUNNING
+    showAutoFillStartingToast(currentProfile.fullName);
 
     stats.totalFields = scan.fields.length;
     const unresolvedFields: AutoFillExtractedField[] = [];
@@ -124,6 +151,46 @@ export async function executeAutoFillCycle(isManualTrigger = false): Promise<Aut
       // Skip elements that have already been filled or have user values
       if (isElementAlreadyProcessed(field.element)) {
         continue;
+      }
+
+      // Guard file input fields against duplicate/infinite injection loops
+      if (field.type === 'file') {
+        const fileInput = field.element as HTMLInputElement;
+
+        // 1. If already injected on this page or step, skip!
+        if (hasResumeBeenInjectedOnPage && !isManualTrigger) {
+          markElementProcessed(field.element);
+          continue;
+        }
+
+        // 2. If file input already has a file selected, skip!
+        if (fileInput.files && fileInput.files.length > 0) {
+          hasResumeBeenInjectedOnPage = true;
+          markElementProcessed(field.element);
+          continue;
+        }
+
+        // 3. If file input or its container was stamped as injected, skip!
+        if (
+          fileInput.getAttribute('data-jdm-file-injected') === 'true' ||
+          fileInput.closest('[data-jdm-file-injected="true"], [data-jdm-resume-container="true"]')
+        ) {
+          hasResumeBeenInjectedOnPage = true;
+          markElementProcessed(field.element);
+          continue;
+        }
+
+        // 4. If ATS already displays an uploaded resume chip/badge nearby
+        const hasExistingResumeBadge = Boolean(
+          document.querySelector(
+            '[data-automation-id*="file-upload-item"], .file-upload-preview, .uploaded-file, [data-qa*="resume-uploaded"], .resume-upload-success, .resume-preview, [data-mapped-resume-uploaded]'
+          )
+        );
+        if (hasExistingResumeBadge && !isManualTrigger) {
+          hasResumeBeenInjectedOnPage = true;
+          markElementProcessed(field.element);
+          continue;
+        }
       }
 
       // If text input already has non-empty text, don't overwrite
@@ -141,6 +208,9 @@ export async function executeAutoFillCycle(isManualTrigger = false): Promise<Aut
       if (tier1Result) {
         const injected = await injectFieldValue(field.element, tier1Result.value, currentProfile);
         if (injected) {
+          if (field.type === 'file') {
+            hasResumeBeenInjectedOnPage = true;
+          }
           markElementAsAutoFilled(field.element, 'tier1', tier1Result.strategy);
           markElementProcessed(field.element);
           stats.tier1Filled++;
@@ -173,14 +243,19 @@ export async function executeAutoFillCycle(isManualTrigger = false): Promise<Aut
     stats.unfilled = stats.totalFields - (stats.tier1Filled + stats.savedFilled + stats.tier2Filled);
     stats.durationMs = Date.now() - stats.startTime;
 
-    // Show visual toast in top frame if any fields were filled
+    // Trigger visual pop-up notification that auto-fill is COMPLETE
     if (stats.tier1Filled > 0 || stats.savedFilled > 0 || stats.tier2Filled > 0) {
-      showAutoFillToast(stats, currentProfile.fullName);
+      showAutoFillCompletedToast(stats, currentProfile.fullName);
+    } else if (isManualTrigger) {
+      showAutoFillInfoToast('Fields Already Populated', 'All detectable application inputs are already completed.');
+    } else {
+      dismissAutoFillToast();
     }
 
     return stats;
   } catch (err) {
     console.error('[JDMatcher Auto-Fill] Error executing cycle:', err);
+    dismissAutoFillToast();
     return stats;
   } finally {
     isExecutionInProgress = false;
@@ -222,6 +297,7 @@ async function initialize(): Promise<void> {
     if (message.type === 'PROFILE_UPDATED') {
       if (message.profile) {
         currentProfile = message.profile;
+        hasResumeBeenInjectedOnPage = false;
         if (isAutoFillEnabled) {
           executeAutoFillCycle();
         }

@@ -98,6 +98,23 @@ export function setCheckedValue(element: HTMLInputElement, checked = true): void
 export function injectResumeFile(element: HTMLInputElement, profile: CandidateAutoFillProfile): boolean {
   if (!profile.resumeFileBase64) return false;
 
+  // 1. Guard against repeat injection if element already has files
+  if (element.files && element.files.length > 0) {
+    element.setAttribute('data-jdm-file-injected', 'true');
+    return true;
+  }
+
+  // 2. Guard against repeat injection if already stamped
+  if (element.getAttribute('data-jdm-file-injected') === 'true') {
+    return true;
+  }
+
+  // 3. Guard against repeat injection if parent container was already injected
+  const container = element.closest('form, [data-automation-id], .application-form, div');
+  if (container?.getAttribute('data-jdm-resume-container') === 'true') {
+    return true;
+  }
+
   try {
     const base64Data = profile.resumeFileBase64.includes(',')
       ? profile.resumeFileBase64.split(',')[1]
@@ -118,6 +135,13 @@ export function injectResumeFile(element: HTMLInputElement, profile: CandidateAu
     const dt = new DataTransfer();
     dt.items.add(file);
     element.files = dt.files;
+
+    // Stamp attributes on element and container
+    element.setAttribute('data-jdm-file-injected', 'true');
+    element.setAttribute('data-jdm-autofilled', 'true');
+    if (container) {
+      container.setAttribute('data-jdm-resume-container', 'true');
+    }
 
     element.dispatchEvent(new Event('focus', { bubbles: true }));
     element.dispatchEvent(new Event('input', { bubbles: true }));
