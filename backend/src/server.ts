@@ -14,6 +14,7 @@ import { recruitersRoutes } from './routes/recruiters.routes.js';
 import { promptSettingsRoutes } from './routes/promptSettings.routes.js';
 import { telemetryRoutes } from './routes/telemetry.routes.js';
 import { invoicesRoutes } from './routes/invoices.routes.js';
+import { autofillRoutes } from './routes/autofill.routes.js';
 
 export async function buildServer() {
   const isProduction = env.NODE_ENV === 'production';
@@ -30,11 +31,27 @@ export async function buildServer() {
         }
       : false,
     trustProxy: true,
-    bodyLimit: 1_048_576, // 1MB max request body
+    bodyLimit: 6 * 1024 * 1024, // 6MB max request body for high-res PDF / base64 resumes
   });
 
   // Sensible defaults and error decorators
   await app.register(sensible);
+
+  // Global hardened error handler (prevents internal stack leaks & schema leaks)
+  app.setErrorHandler((error: any, request, reply) => {
+    request.log.error(error);
+    const statusCode = error.statusCode || 500;
+    if (statusCode >= 500) {
+      return reply.status(500).send({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: isProduction ? 'An internal server error occurred' : (error.message || 'Server error'),
+      });
+    }
+    return reply.status(statusCode).send({
+      error: error.name || 'REQUEST_ERROR',
+      message: error.message,
+    });
+  });
 
   // Security headers (disabled for SSE content-type override)
   await app.register(helmet, {
@@ -74,11 +91,15 @@ export async function buildServer() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  // JWT Plugin
+  // JWT Plugin with strict HS256 algorithm pinning (prevents algorithm confusion attacks)
   await app.register(jwt, {
     secret: env.JWT_SECRET,
     sign: {
       expiresIn: '7d',
+      algorithm: 'HS256',
+    },
+    verify: {
+      algorithms: ['HS256'],
     },
   });
 
@@ -116,6 +137,9 @@ export async function buildServer() {
 
   await app.register(invoicesRoutes, { prefix: '/api/invoices' });
   await app.register(invoicesRoutes, { prefix: '/invoices' });
+
+  await app.register(autofillRoutes, { prefix: '/api/v1/extension' });
+  await app.register(autofillRoutes, { prefix: '/v1/extension' });
 
   return app;
 }

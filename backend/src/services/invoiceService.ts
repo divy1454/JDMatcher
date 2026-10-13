@@ -203,16 +203,23 @@ export class InvoiceService {
     const upiNote = `Invoice ${inv.invoiceNumber}`;
     const upiDeepLink = `upi://pay?pa=${inv.upiId}&pn=${encodeURIComponent(inv.ownerName)}&am=${amountInr.toFixed(2)}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
 
+    // Sanitize invoice payload to prevent raw cost or profit margin leakage to agency admins
+    const invoicePayload: any = {
+      ...inv,
+      subtotalUsd: parseFloat(inv.subtotalUsd),
+      taxUsd: parseFloat(inv.taxUsd),
+      totalAmountUsd: amountUsd,
+      exchangeRateInr: parseFloat(inv.exchangeRateInr),
+      totalAmountInr: amountInr,
+      lineItems: (inv.lineItems as InvoiceLineItem[]) || [],
+    };
+
+    if (!options?.isSuperAdmin) {
+      delete invoicePayload.rawCostUsd;
+    }
+
     return {
-      invoice: {
-        ...inv,
-        subtotalUsd: parseFloat(inv.subtotalUsd),
-        taxUsd: parseFloat(inv.taxUsd),
-        totalAmountUsd: amountUsd,
-        exchangeRateInr: parseFloat(inv.exchangeRateInr),
-        totalAmountInr: amountInr,
-        lineItems: (inv.lineItems as InvoiceLineItem[]) || [],
-      },
+      invoice: invoicePayload,
       organization: org,
       owner: {
         name: inv.ownerName,

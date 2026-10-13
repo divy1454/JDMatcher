@@ -63,6 +63,12 @@ export async function seed() {
     }
 
     const shouldSeedDemo = process.argv.includes('--demo');
+    if (env.NODE_ENV === 'production' && shouldSeedDemo) {
+      console.warn('⚠️ [SECURITY] Seeding demo agency accounts is strictly prohibited in production mode. Skipping demo seeding.');
+      console.log('--- Database Seeding Completed Successfully ---');
+      return;
+    }
+
     if (!shouldSeedDemo) {
       console.log('\n--- Fresh Workflow Mode: Demo agency seeding skipped (use --demo to seed Apex IT demo) ---');
       console.log('--- Database Seeding Completed Successfully ---');

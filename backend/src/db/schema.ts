@@ -72,12 +72,24 @@ export const candidates = pgTable('candidates', {
   createdByRecruiterId: uuid('created_by_recruiter_id').references(() => users.id, { onDelete: 'set null' }),
   fullName: varchar('full_name', { length: 255 }).notNull(),
   primaryTitle: varchar('primary_title', { length: 255 }).notNull(),
+  visaStatus: visaStatusEnum('visa_status').notNull().default('Other'),
+  workPreference: workPrefEnum('work_preference').notNull().default('Remote'),
+  securityClearance: clearanceEnum('security_clearance').notNull().default('None'),
+  yearsOfExperience: integer('years_of_experience').notNull().default(0),
+  keySkills: jsonb('key_skills').$type<string[]>().notNull().default([]),
   rawResumeText: text('raw_resume_text').notNull(),
+  // SpeedyApply 7-Part Structured Profile & Auto-Fill Assets
+  structuredProfile: jsonb('structured_profile').$type<Record<string, any>>().default({}),
+  savedResponses: jsonb('saved_responses').$type<Array<Record<string, any>>>().default([]),
+  resumeFileBase64: text('resume_file_base64'),
+  resumeFileName: varchar('resume_file_name', { length: 255 }),
+  resumeMimeType: varchar('resume_mime_type', { length: 100 }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [
   index('candidates_org_idx').on(t.organizationId),
+  index('candidates_org_active_idx').on(t.organizationId, t.isActive),
   index('candidates_recruiter_idx').on(t.createdByRecruiterId),
 ]);
 
@@ -118,6 +130,7 @@ export const tokenConsumptionLedger = pgTable('token_consumption_ledger', {
 }, (t) => [
   index('ledger_org_idx').on(t.organizationId),
   index('ledger_timestamp_idx').on(t.timestamp),
+  index('ledger_org_timestamp_idx').on(t.organizationId, t.timestamp),
   index('ledger_action_type_idx').on(t.actionType),
 ]);
 

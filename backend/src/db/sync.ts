@@ -84,12 +84,17 @@ CREATE TABLE IF NOT EXISTS "candidates" (
   "created_by_recruiter_id" uuid REFERENCES "users"("id") ON DELETE SET NULL,
   "full_name" varchar(255) NOT NULL,
   "primary_title" varchar(255) NOT NULL,
-  "visa_status" "visa_status" NOT NULL,
-  "work_preference" "work_preference" NOT NULL,
+  "visa_status" "visa_status" NOT NULL DEFAULT 'Other',
+  "work_preference" "work_preference" NOT NULL DEFAULT 'Remote',
   "security_clearance" "security_clearance" NOT NULL DEFAULT 'None',
   "years_of_experience" integer NOT NULL DEFAULT 0,
   "key_skills" jsonb NOT NULL DEFAULT '[]'::jsonb,
   "raw_resume_text" text NOT NULL,
+  "structured_profile" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "saved_responses" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "resume_file_base64" text,
+  "resume_file_name" varchar(255),
+  "resume_mime_type" varchar(100),
   "is_active" boolean NOT NULL DEFAULT true,
   "created_at" timestamp with time zone NOT NULL DEFAULT now(),
   "updated_at" timestamp with time zone NOT NULL DEFAULT now()
@@ -207,12 +212,26 @@ CREATE TABLE IF NOT EXISTS "device_unlock_requests" (
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "device_monthly_switch_count" integer NOT NULL DEFAULT 0;
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "device_switch_count_reset_at" timestamp with time zone;
 
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "visa_status" "visa_status" NOT NULL DEFAULT 'Other';
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "work_preference" "work_preference" NOT NULL DEFAULT 'Remote';
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "security_clearance" "security_clearance" NOT NULL DEFAULT 'None';
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "years_of_experience" integer NOT NULL DEFAULT 0;
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "key_skills" jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "structured_profile" jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "saved_responses" jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "resume_file_base64" text;
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "resume_file_name" varchar(255);
+ALTER TABLE "candidates" ADD COLUMN IF NOT EXISTS "resume_mime_type" varchar(100);
+
 CREATE INDEX IF NOT EXISTS "candidates_org_idx" ON "candidates"("organization_id");
 CREATE INDEX IF NOT EXISTS "candidates_recruiter_idx" ON "candidates"("created_by_recruiter_id");
 CREATE INDEX IF NOT EXISTS "matched_jds_org_idx" ON "matched_jds"("organization_id");
 CREATE INDEX IF NOT EXISTS "matched_jds_candidate_idx" ON "matched_jds"("candidate_id");
+CREATE INDEX IF NOT EXISTS "candidates_org_idx" ON "candidates"("organization_id");
+CREATE INDEX IF NOT EXISTS "candidates_org_active_idx" ON "candidates"("organization_id", "is_active");
 CREATE INDEX IF NOT EXISTS "ledger_org_idx" ON "token_consumption_ledger"("organization_id");
 CREATE INDEX IF NOT EXISTS "ledger_timestamp_idx" ON "token_consumption_ledger"("timestamp");
+CREATE INDEX IF NOT EXISTS "ledger_org_timestamp_idx" ON "token_consumption_ledger"("organization_id", "timestamp");
 CREATE INDEX IF NOT EXISTS "users_org_idx" ON "users"("organization_id");
 CREATE INDEX IF NOT EXISTS "users_device_idx" ON "users"("device_id");
 CREATE INDEX IF NOT EXISTS "invoices_org_idx" ON "invoices"("organization_id");

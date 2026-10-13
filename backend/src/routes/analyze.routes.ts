@@ -13,17 +13,17 @@ import { telemetryService } from '../services/telemetryService.js';
 
 const evaluateSchema = z.object({
   candidateId: z.string().uuid(),
-  jdText: z.string().min(20, 'Job description must be at least 20 characters'),
-  jobTitle: z.string().optional(),
-  jobUrl: z.string().optional(),
-  companyOrClient: z.string().optional(),
+  jdText: z.string().min(20, 'Job description must be at least 20 characters').max(20000, 'Job description exceeds 20,000 character limit'),
+  jobTitle: z.string().max(255).optional(),
+  jobUrl: z.string().max(2000).optional(),
+  companyOrClient: z.string().max(255).optional(),
 });
 
 const analyzeResumeSchema = z.object({
   candidateId: z.string().uuid().optional(),
-  rawResumeText: z.string().min(50, 'Resume text must be at least 50 characters').optional(),
-  candidateName: z.string().optional(),
-  candidateTitle: z.string().optional(),
+  rawResumeText: z.string().min(50, 'Resume text must be at least 50 characters').max(40000, 'Resume text exceeds 40,000 character limit').optional(),
+  candidateName: z.string().max(255).optional(),
+  candidateTitle: z.string().max(255).optional(),
 }).refine((data) => !!(data.candidateId || data.rawResumeText), {
   message: 'Either candidateId or rawResumeText must be provided',
 });
@@ -31,20 +31,28 @@ const analyzeResumeSchema = z.object({
 const saveAppliedSchema = z.object({
   matchedJdId: z.string().uuid().optional(),
   candidateId: z.string().uuid(),
-  jobTitle: z.string().min(1),
-  companyOrClient: z.string().optional(),
-  jobUrl: z.string().optional(),
-  rawJdText: z.string().optional().default(''),
+  jobTitle: z.string().min(1).max(255),
+  companyOrClient: z.string().max(255).optional(),
+  jobUrl: z.string().max(2000).optional(),
+  rawJdText: z.string().max(20000).optional().default(''),
   verdict: z.enum(['APPLY', 'SKIP', 'PENDING']),
   matchScore: z.number().int().min(0).max(100),
-  matchReasoning: z.string().min(1),
+  matchReasoning: z.string().min(1).max(5000),
 });
 
 export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  // POST /api/analyze/eval
+  // POST /api/analyze/eval (Rate limited: 30 requests / minute)
   fastify.post(
     '/eval',
-    { preHandler: [authGuard, deviceGuard, depositGuard] },
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+        },
+      },
+      preHandler: [authGuard, deviceGuard, depositGuard],
+    },
     async (request, reply) => {
       const parseResult = evaluateSchema.safeParse(request.body);
       if (!parseResult.success) {
@@ -241,8 +249,16 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
 
       let savedMatchedJd;
 
-      // If matchedJdId is provided, update existing record
+      // If matchedJdId is provided, update existing record with strict tenant and recruiter isolation
       if (data.matchedJdId) {
+        const updateConditions = [
+          eq(matchedJds.id, data.matchedJdId),
+          eq(matchedJds.organizationId, user.organizationId!),
+        ];
+        if (user.role === 'recruiter') {
+          updateConditions.push(eq(matchedJds.recruiterId, user.id));
+        }
+
         const [updated] = await db
           .update(matchedJds)
           .set({
@@ -254,7 +270,7 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
             matchScore: data.matchScore,
             matchReasoning: data.matchReasoning,
           })
-          .where(and(eq(matchedJds.id, data.matchedJdId), eq(matchedJds.organizationId, user.organizationId!)))
+          .where(and(...updateConditions))
           .returning();
         savedMatchedJd = updated;
       }
@@ -304,19 +320,21 @@ export const analyzeRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         eq(matchedJds.id, id),
         eq(matchedJds.organizationId, user.organizationId!),
       ];
+      if (user.role === 'recruiter') {
+        conditions.push(eq(matchedJds.recruiterId, user.id));
+      }
 
       const [existing] = await db
         .select({
           id: matchedJds.id,
           candidateId: matchedJds.candidateId,
-          createdByRecruiterId: candidates.createdByRecruiterId,
+          recruiterId: matchedJds.recruiterId,
         })
         .from(matchedJds)
-        .leftJoin(candidates, eq(matchedJds.candidateId, candidates.id))
         .where(and(...conditions))
         .limit(1);
 
-      if (!existing || (user.role === 'recruiter' && existing.createdByRecruiterId !== user.id)) {
+      if (!existing) {
         return reply.status(404).send({ error: 'NOT_FOUND', message: 'Matched JD not found or access denied' });
       }
 

@@ -12,6 +12,7 @@ export default defineConfig({
         popup: resolve(__dirname, 'popup.html'),
         content: resolve(__dirname, 'src/content/index.tsx'),
         background: resolve(__dirname, 'src/background/index.ts'),
+        'content-autofill': resolve(__dirname, 'src/content-autofill/index.ts'),
       },
       output: {
         entryFileNames: '[name].js',

@@ -1,0 +1,107 @@
+/* JDMatcher Enterprise - Universal Auto-Fill Styling */
+
+.jdm-autofilled-tier1 {
+  outline: 2px solid #10b981 !important;
+  outline-offset: 1px !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25) !important;
+  transition: outline 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+.jdm-autofilled-saved {
+  outline: 2px solid #06b6d4 !important;
+  outline-offset: 1px !important;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.25) !important;
+  transition: outline 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+.jdm-autofilled-tier2 {
+  outline: 2px solid #f59e0b !important;
+  outline-offset: 1px !important;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25) !important;
+  transition: outline 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+/* Toast Pill Floating in Bottom-Right */
+.jdm-autofill-toast-container {
+  position: fixed !important;
+  bottom: 24px !important;
+  right: 24px !important;
+  z-index: 2147483640 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  pointer-events: auto !important;
+}
+
+.jdm-autofill-toast {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 10px 16px !important;
+  background: rgba(15, 23, 42, 0.92) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  color: #ffffff !important;
+  border-radius: 9999px !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+  animation: jdmSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+.jdm-autofill-toast-icon {
+  width: 20px !important;
+  height: 20px !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+  background: #10b981 !important;
+  color: #ffffff !important;
+  font-size: 12px !important;
+  font-weight: bold !important;
+}
+
+.jdm-autofill-toast-text {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.jdm-autofill-toast-title {
+  font-weight: 600 !important;
+  color: #f8fafc !important;
+}
+
+.jdm-autofill-toast-subtitle {
+  font-size: 11px !important;
+  color: #94a3b8 !important;
+}
+
+.jdm-autofill-toast-close {
+  background: none !important;
+  border: none !important;
+  color: #94a3b8 !important;
+  cursor: pointer !important;
+  padding: 4px !important;
+  margin-left: 8px !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  border-radius: 4px !important;
+  transition: color 0.15s ease !important;
+}
+
+.jdm-autofill-toast-close:hover {
+  color: #ffffff !important;
+}
+
+@keyframes jdmSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

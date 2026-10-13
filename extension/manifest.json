@@ -33,12 +33,23 @@
         "<all_urls>"
       ],
       "js": ["dist/content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": ["dist/content-autofill.js"],
+      "css": ["dist/content-autofill.css"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["dist/shadow.css", "icons/*", "dist/offscreen.html", "dist/offscreen.js", "offscreen.html", "offscreen.js"],
+      "resources": ["dist/shadow.css", "dist/content-autofill.css", "icons/*", "dist/offscreen.html", "dist/offscreen.js", "offscreen.html", "offscreen.js"],
       "matches": ["<all_urls>"]
     }
   ],

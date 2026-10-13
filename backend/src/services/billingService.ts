@@ -34,7 +34,7 @@ export class BillingService {
     organizationId: string,
     recruiterId: string,
     usage: TokenUsage,
-    actionType: 'eval' | 'resume_analysis' = 'eval'
+    actionType: 'eval' | 'resume_analysis' | 'autofill_resolve' = 'eval'
   ): Promise<BillingResult> {
     // 1. Real provider raw cost (paid to Google Gemini at 1x)
     const rawCost = this.calculateRawCost(usage.inputTokens, usage.outputTokens);
@@ -65,11 +65,10 @@ export class BillingService {
 
     const multiplier = parseFloat(org.profitMultiplier);
     const billedCost = Number((clientRawCost * multiplier).toFixed(6));
-    const currentBilled = parseFloat(org.totalBilledAmount);
-    const newTotalBilled = Number((currentBilled + billedCost).toFixed(4));
     const depositLimit = parseFloat(org.securityDepositLimit);
+    let updatedTotalBilled = parseFloat(org.totalBilledAmount) + billedCost;
 
-    // Atomic transaction: Insert into ledger and update organization billed amount
+    // Atomic transaction: Insert into ledger and atomically increment organization billed amount
     await db.transaction(async (tx) => {
       await tx.insert(tokenConsumptionLedger).values({
         organizationId,
@@ -85,20 +84,26 @@ export class BillingService {
         actionType,
       });
 
-      await tx
+      // Atomic SQL increment prevents concurrency race conditions across recruiters
+      const [updatedOrg] = await tx
         .update(organizations)
         .set({
-          totalBilledAmount: newTotalBilled.toFixed(4),
+          totalBilledAmount: sql`${organizations.totalBilledAmount} + ${billedCost.toFixed(4)}::numeric`,
           updatedAt: new Date(),
         })
-        .where(eq(organizations.id, organizationId));
+        .where(eq(organizations.id, organizationId))
+        .returning({ totalBilledAmount: organizations.totalBilledAmount });
+
+      if (updatedOrg) {
+        updatedTotalBilled = parseFloat(updatedOrg.totalBilledAmount);
+      }
     });
 
     return {
       rawCostUsd: rawCost,
       profitMultiplier: multiplier,
       billedCostUsd: billedCost,
-      totalBilledAmountAfter: newTotalBilled,
+      totalBilledAmountAfter: Number(updatedTotalBilled.toFixed(4)),
       securityDepositLimit: depositLimit,
     };
   }
@@ -284,12 +289,22 @@ export class BillingService {
     let resumeAnalysisRawCost = 0;
     let resumeAnalysisTokens = 0;
 
+    let autofillCount = 0;
+    let autofillBilledCost = 0;
+    let autofillRawCost = 0;
+    let autofillTokens = 0;
+
     for (const b of breakdownQuery) {
       if (b.actionType === 'resume_analysis') {
         resumeAnalysisCount = b.count;
         resumeAnalysisBilledCost = Number(b.billedCost.toFixed(4));
         resumeAnalysisRawCost = Number(b.rawCost.toFixed(4));
         resumeAnalysisTokens = b.tokens;
+      } else if (b.actionType === 'autofill_resolve') {
+        autofillCount = b.count;
+        autofillBilledCost = Number(b.billedCost.toFixed(4));
+        autofillRawCost = Number(b.rawCost.toFixed(4));
+        autofillTokens = b.tokens;
       } else {
         evalCount += b.count;
         evalBilledCost += Number(b.billedCost.toFixed(4));
@@ -339,6 +354,13 @@ export class BillingService {
         rawCostUsd: resumeAnalysisRawCost,
         profitMarginUsd: Number((resumeAnalysisBilledCost - resumeAnalysisRawCost).toFixed(4)),
         tokens: resumeAnalysisTokens,
+      },
+      autofillResolve: {
+        count: autofillCount,
+        billedCostUsd: autofillBilledCost,
+        rawCostUsd: autofillRawCost,
+        profitMarginUsd: Number((autofillBilledCost - autofillRawCost).toFixed(4)),
+        tokens: autofillTokens,
       },
       regularEval: {
         count: evalCount,

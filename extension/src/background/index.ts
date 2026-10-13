@@ -51,8 +51,14 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 let activeEvaluationAbortController: AbortController | null = null;
 
-// Listen for messages from Content Script
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+// Listen for messages from Content Script with strict sender verification
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Security Guard: Only accept messages originating from this extension's runtime
+  if (sender.id !== chrome.runtime.id) {
+    console.warn('[JDMatcher Security] Rejected message from unauthorized sender:', sender.id);
+    return false;
+  }
+
   if (message.type === 'START_EVALUATION') {
     handleEvaluation(message.payload)
       .then((res) => sendResponse(res))
@@ -96,6 +102,47 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     handleSyncFromPortal()
       .then((res) => sendResponse(res))
       .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'CACHE_CANDIDATE_PROFILE') {
+    handleCacheCandidateProfile(message.payload?.candidateId)
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'AUTOFILL_RESOLVE') {
+    handleAutofillResolve(message.payload)
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === 'GET_AUTOFILL_STATE') {
+    chrome.storage.local.get(['autofillEnabled', 'cachedCandidateProfile', 'selectedCandidateId']).then((res) => {
+      sendResponse({
+        success: true,
+        autofillEnabled: res.autofillEnabled !== false,
+        cachedCandidateProfile: res.cachedCandidateProfile || null,
+        selectedCandidateId: res.selectedCandidateId || null,
+      });
+    });
+    return true;
+  }
+
+  if (message.type === 'TRIGGER_MANUAL_AUTOFILL') {
+    chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'EXECUTE_AUTOFILL' }, (res) => {
+          sendResponse(res || { success: true, message: 'Autofill signal broadcasted to all frames' });
+        });
+      } else {
+        sendResponse({ success: false, error: 'No active tab found' });
+      }
+    }).catch((err) => {
+      sendResponse({ success: false, error: err.message });
+    });
     return true;
   }
 
@@ -450,3 +497,90 @@ async function handleSaveApplied(payload: {
 
   return response.json();
 }
+
+async function getEffectiveBaseUrl(): Promise<string> {
+  const storage = await chrome.storage.local.get(['apiUrl', 'frontendUrl']);
+  let rawUrl = storage.apiUrl;
+  if (!rawUrl || rawUrl.includes('jd-matcher-pdm1') || rawUrl.includes('recruiter-portal') || rawUrl.includes('jdmatcher-fe')) {
+    rawUrl = storage.frontendUrl?.includes('localhost') || storage.frontendUrl?.includes('127.0.0.1')
+      ? 'http://localhost:4000'
+      : API_BASE_URL;
+  }
+  return rawUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '');
+}
+
+async function handleCacheCandidateProfile(candidateId: string) {
+  if (!candidateId) throw new Error('candidateId is required');
+
+  const baseUrl = await getEffectiveBaseUrl();
+  const storage = await chrome.storage.local.get(['token']);
+  const token = storage.token;
+  const deviceId = await getOrCreateDeviceId();
+
+  const response = await fetch(`${baseUrl}/api/v1/extension/candidate-profile/${candidateId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token || ''}`,
+      'x-device-id': deviceId,
+    },
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to fetch candidate profile (${response.status})`);
+  }
+
+  const data = await response.json();
+  const profile = data.candidate;
+
+  await chrome.storage.local.set({
+    cachedCandidateProfile: profile,
+    selectedCandidateId: candidateId,
+  });
+
+  // Broadcast to all active tabs and frames
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'PROFILE_UPDATED', profile }).catch(() => {});
+      }
+    }
+  } catch (_e) {}
+
+  return { success: true, profile };
+}
+
+async function handleAutofillResolve(payload: any) {
+  const baseUrl = await getEffectiveBaseUrl();
+  const storage = await chrome.storage.local.get(['token']);
+  const token = storage.token;
+  const deviceId = await getOrCreateDeviceId();
+
+  const response = await fetch(`${baseUrl}/api/v1/extension/autofill-resolve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token || ''}`,
+      'x-device-id': deviceId,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (response.status === 402) {
+    return {
+      success: false,
+      error: 'WALLET_DEPOSIT_EXHAUSTED',
+      message: 'Prepaid deposit limit reached. Please contact your organization administrator to add funds.',
+    };
+  }
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `AI autofill resolution failed (${response.status})`);
+  }
+
+  const data = await response.json();
+  return { success: true, data };
+}
+

@@ -125,7 +125,8 @@ export const recruitersRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
       }
 
       const { fullName, email, password, organizationId } = parseResult.data;
-      const targetOrgId = user.organizationId || organizationId;
+      // Strict tenant isolation: Org Admin is strictly restricted to their own organizationId
+      const targetOrgId = user.role === 'super_admin' ? (organizationId || user.organizationId) : user.organizationId;
 
       if (!targetOrgId) {
         return reply.status(400).send({

@@ -22,12 +22,22 @@ const updateProfileSchema = z.object({
 });
 
 export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  // POST /api/auth/login
-  fastify.post('/login', async (request, reply) => {
-    const parseResult = loginSchema.safeParse(request.body);
-    if (!parseResult.success) {
-      return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parseResult.error.issues });
-    }
+  // POST /api/auth/login (Brute-force protected: 10 requests / minute)
+  fastify.post(
+    '/login',
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
+      const parseResult = loginSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parseResult.error.issues });
+      }
 
     const { email, password } = parseResult.data;
 
@@ -39,6 +49,21 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
     if (!user || !user.isActive) {
       return reply.status(401).send({ error: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
+    }
+
+    if (user.organizationId) {
+      const [org] = await db
+        .select({ id: organizations.id, isActive: organizations.isActive })
+        .from(organizations)
+        .where(eq(organizations.id, user.organizationId))
+        .limit(1);
+
+      if (!org || !org.isActive) {
+        return reply.status(403).send({
+          error: 'ORGANIZATION_DEACTIVATED',
+          message: 'Your organization account is suspended or deactivated. Please contact support.',
+        });
+      }
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);

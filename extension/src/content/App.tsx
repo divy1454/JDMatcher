@@ -33,11 +33,6 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             setTheme(res.jdm_theme);
           }
         });
-      } else {
-        const saved = localStorage.getItem('jdm_theme');
-        if (saved === 'dark' || saved === 'light') {
-          setTheme(saved);
-        }
       }
     } catch (_e) { }
   }, []);
@@ -48,10 +43,53 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.set({ jdm_theme: nextTheme });
-      } else {
-        localStorage.setItem('jdm_theme', nextTheme);
       }
     } catch (_e) { }
+  };
+
+  // Universal Auto-Fill Engine State
+  const [autofillEnabled, setAutofillEnabled] = useState<boolean>(true);
+
+  useEffect(() => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(['autofillEnabled'], (res) => {
+          if (res?.autofillEnabled !== undefined) {
+            setAutofillEnabled(Boolean(res.autofillEnabled));
+          }
+        });
+      }
+    } catch (_e) {}
+  }, []);
+
+  const handleToggleAutofill = () => {
+    const next = !autofillEnabled;
+    setAutofillEnabled(next);
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ autofillEnabled: next });
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]?.id) {
+            chrome.tabs.sendMessage(tabs[0].id, { type: 'TOGGLE_AUTOFILL', enabled: next }).catch(() => {});
+          }
+        });
+      }
+    } catch (_e) {}
+    showToast(next ? '⚡ Auto-Fill enabled for ATS application forms' : 'Auto-Fill disabled', 'info');
+  };
+
+  const handleTriggerManualAutofill = () => {
+    try {
+      showToast('⚡ Scanning and auto-filling form across all frames...', 'info');
+      chrome.runtime.sendMessage({ type: 'TRIGGER_MANUAL_AUTOFILL' }, (res) => {
+        if (res?.stats) {
+          const filled = (res.stats.tier1Filled || 0) + (res.stats.savedFilled || 0) + (res.stats.tier2Filled || 0);
+          showToast(`⚡ Auto-filled ${filled} field${filled !== 1 ? 's' : ''} on active form!`, 'success');
+        } else if (res?.success) {
+          showToast('⚡ Auto-fill scan executed across all frames.', 'success');
+        }
+      });
+    } catch (_e) {}
   };
 
   // Candidates & Selection
@@ -320,6 +358,14 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
       setSelectedCandidateId(activeId);
       chrome.storage.local.set({ selectedCandidateId: activeId });
+
+      // Pre-cache candidate profile for zero-latency universal auto-fill
+      try {
+        chrome.runtime.sendMessage({
+          type: 'CACHE_CANDIDATE_PROFILE',
+          payload: { candidateId: activeId },
+        }, () => {});
+      } catch (_e) {}
 
       const mappedList: Candidate[] = validList.map((c) => ({
         ...c,
@@ -927,6 +973,22 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                 </svg>
               )}
             </button>
+            {/* Auto-Fill Toggle Button */}
+            <button
+              type="button"
+              className="jdm-icon-btn"
+              onClick={handleToggleAutofill}
+              title={autofillEnabled ? 'Zero-Click Auto-Fill: Active (Click to Pause)' : 'Zero-Click Auto-Fill: Paused (Click to Enable)'}
+              style={{
+                color: autofillEnabled ? '#10b981' : '#94a3b8',
+                border: autofillEnabled ? '1px solid rgba(16, 185, 129, 0.35)' : undefined,
+                background: autofillEnabled ? 'rgba(16, 185, 129, 0.1)' : undefined,
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill={autofillEnabled ? '#10b981' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+              </svg>
+            </button>
             <a
               href={`${frontendUrl}/recruiter-portal/profile`}
               target="_blank"
@@ -947,8 +1009,49 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
             {/* Active Bench Candidate Section */}
             <div className="jdm-candidate-section">
               <div className="jdm-candidate-header">
-                <span className="jdm-candidate-label">ACTIVE BENCH CANDIDATE</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="jdm-candidate-label">ACTIVE BENCH CANDIDATE</span>
+                  {autofillEnabled && (
+                    <span
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#10b981',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                        borderRadius: '9999px',
+                        padding: '1px 6px',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      ⚡ AUTO-FILL READY
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {autofillEnabled && (
+                    <button
+                      type="button"
+                      onClick={handleTriggerManualAutofill}
+                      title="Instantly auto-fill application fields on active page"
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                        color: '#10b981',
+                        borderRadius: '4px',
+                        padding: '2px 7px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                      }}
+                    >
+                      <span>⚡</span>
+                      <span>Fill Form</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleSmartRefresh}
@@ -1150,6 +1253,12 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                                   setCandidateError('');
                                   setIsDropdownOpen(false);
                                   setCandidateSearchQuery('');
+                                  try {
+                                    chrome.runtime.sendMessage({
+                                      type: 'CACHE_CANDIDATE_PROFILE',
+                                      payload: { candidateId: c.id },
+                                    }, () => {});
+                                  } catch (_err) {}
                                 }}
                               >
                                 <div className="jdm-candidate-option-left">

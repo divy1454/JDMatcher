@@ -70,6 +70,7 @@ interface TelemetryData {
   totalTokens: number;
   resumeAnalysis?: ActionBreakdown;
   regularEval?: ActionBreakdown;
+  autofillResolve?: ActionBreakdown;
   timeSeries: Array<{
     timestamp: string;
     rawCost: number;
@@ -315,7 +316,7 @@ export default function TelemetryPage() {
       </div>
 
       {/* Service Channel Breakdown Grid */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Card 1: Resume Analysis Intelligence (Stealth 3x) */}
         <div className="relative overflow-hidden rounded-2xl border border-purple-200 dark:border-purple-500/30 bg-gradient-to-br from-purple-50 via-white to-purple-50/50 dark:from-purple-950/40 dark:via-slate-900/80 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
           <div className="flex items-center justify-between">
@@ -425,6 +426,61 @@ export default function TelemetryPage() {
             {(data?.regularEval?.tokens || 0).toLocaleString()} tokens consumed across platform
           </div>
         </div>
+
+        {/* Card 3: Auto-Fill & Screening Intelligence (SpeedyApply Engine) */}
+        <div className="relative overflow-hidden rounded-2xl border border-emerald-200 dark:border-emerald-500/30 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/50 dark:from-emerald-950/40 dark:via-slate-900/80 dark:to-slate-900/60 p-5 shadow-xs backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>Auto-Fill & Screening Intelligence</span>
+                  <span className="rounded-md border border-emerald-200 dark:border-emerald-500/30 bg-emerald-100 dark:bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                    SpeedyApply Engine
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Universal zero-click ATS auto-fill & question resolver</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                {data?.autofillResolve?.billedCostUsd
+                  ? `${(((data.autofillResolve.profitMarginUsd / data.autofillResolve.billedCostUsd) * 100).toFixed(1))}% Margin`
+                  : '—'}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-4 gap-2 border-t border-emerald-200 dark:border-emerald-500/20 pt-3">
+            <div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Resolves</span>
+              <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-white">{data?.autofillResolve?.count || 0}</p>
+            </div>
+            <div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billed</span>
+              <p className="mt-0.5 text-base font-bold text-emerald-600 dark:text-emerald-400">
+                {formatCurrency(data?.autofillResolve?.billedCostUsd || 0)}
+              </p>
+            </div>
+            <div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Raw Cost</span>
+              <p className="mt-0.5 text-base font-bold text-indigo-600 dark:text-indigo-400">
+                {formatCurrency(data?.autofillResolve?.rawCostUsd || 0)}
+              </p>
+            </div>
+            <div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Net Profit</span>
+              <p className="mt-0.5 text-base font-bold text-emerald-700 dark:text-emerald-300">
+                +{formatCurrency(data?.autofillResolve?.profitMarginUsd || 0)}
+              </p>
+            </div>
+          </div>
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+            {(data?.autofillResolve?.tokens || 0).toLocaleString()} tokens consumed across platform
+          </div>
+        </div>
       </div>
 
       {/* Main Charts & Live Telemetry Section */}
@@ -441,6 +497,9 @@ export default function TelemetryPage() {
             <div className="flex flex-wrap items-center gap-3 text-xs font-medium">
               <span className="rounded-lg border border-purple-200 dark:border-purple-500/30 bg-purple-50 dark:bg-purple-500/10 px-2.5 py-1 text-[11px] text-purple-700 dark:text-purple-300">
                 Resume: {formatCurrency(data?.resumeAnalysis?.billedCostUsd || 0)} billed
+              </span>
+              <span className="rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-700 dark:text-emerald-300">
+                Auto-Fill: {formatCurrency(data?.autofillResolve?.billedCostUsd || 0)} billed
               </span>
               <div className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />

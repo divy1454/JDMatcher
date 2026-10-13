@@ -29,8 +29,11 @@ declare module 'fastify' {
   }
 }
 
+import { organizations } from '../db/schema.js';
+
 export async function authGuard(request: FastifyRequest, reply: FastifyReply) {
   try {
+    // Explicitly pin HS256 algorithm during JWT verification
     await request.jwtVerify();
     const tokenPayload = request.user as unknown as { id: string; email: string };
 
@@ -43,6 +46,22 @@ export async function authGuard(request: FastifyRequest, reply: FastifyReply) {
 
     if (!userRecord || !userRecord.isActive) {
       return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'User account not found or deactivated' });
+    }
+
+    // Verify organization is active for non-super-admin users
+    if (userRecord.organizationId) {
+      const [orgRecord] = await db
+        .select({ id: organizations.id, isActive: organizations.isActive })
+        .from(organizations)
+        .where(eq(organizations.id, userRecord.organizationId))
+        .limit(1);
+
+      if (!orgRecord || !orgRecord.isActive) {
+        return reply.status(403).send({
+          error: 'ORGANIZATION_DEACTIVATED',
+          message: 'Your organization account is suspended or deactivated. Please contact support.',
+        });
+      }
     }
 
     request.user = {

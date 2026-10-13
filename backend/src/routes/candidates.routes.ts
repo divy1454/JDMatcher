@@ -6,18 +6,46 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
 
 const candidateSchema = z.object({
-  fullName: z.string().min(2),
-  primaryTitle: z.string().min(2),
-  rawResumeText: z.string().min(20, 'Raw resume must be at least 20 characters'),
+  fullName: z.string().min(2).max(255),
+  primaryTitle: z.string().min(2).max(255),
+  rawResumeText: z.string().min(20, 'Raw resume must be at least 20 characters').max(40000, 'Raw resume exceeds 40,000 character limit'),
   createdByRecruiterId: z.string().uuid().nullable().optional(),
+  visaStatus: z.enum([
+    'US Citizen', 'Green Card', 'H-1B', 'OPT', 'CPT', 'TN', 'E-3', 'H4-EAD', 'L2-EAD', 'Other'
+  ]).optional(),
+  workPreference: z.enum(['Remote', 'Hybrid', 'On-Site']).optional(),
+  securityClearance: z.enum([
+    'None', 'Public Trust', 'Secret', 'Top Secret', 'Top Secret/SCI', 'Polygraph'
+  ]).optional(),
+  yearsOfExperience: z.number().int().min(0).max(60).optional(),
+  keySkills: z.array(z.string().max(100)).max(100).optional(),
+  structuredProfile: z.record(z.any()).optional(),
+  savedResponses: z.array(z.record(z.any())).max(100).optional(),
+  resumeFileBase64: z.string().max(4500000, 'Resume file base64 exceeds 4.5MB limit').optional(),
+  resumeFileName: z.string().max(255).optional(),
+  resumeMimeType: z.string().max(100).optional(),
 });
 
 const candidateUpdateSchema = z.object({
-  fullName: z.string().min(2).optional(),
-  primaryTitle: z.string().min(2).optional(),
-  rawResumeText: z.string().min(20).optional(),
+  fullName: z.string().min(2).max(255).optional(),
+  primaryTitle: z.string().min(2).max(255).optional(),
+  rawResumeText: z.string().min(20).max(40000, 'Raw resume exceeds 40,000 character limit').optional(),
   createdByRecruiterId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().optional(),
+  visaStatus: z.enum([
+    'US Citizen', 'Green Card', 'H-1B', 'OPT', 'CPT', 'TN', 'E-3', 'H4-EAD', 'L2-EAD', 'Other'
+  ]).optional(),
+  workPreference: z.enum(['Remote', 'Hybrid', 'On-Site']).optional(),
+  securityClearance: z.enum([
+    'None', 'Public Trust', 'Secret', 'Top Secret', 'Top Secret/SCI', 'Polygraph'
+  ]).optional(),
+  yearsOfExperience: z.number().int().min(0).max(60).optional(),
+  keySkills: z.array(z.string().max(100)).max(100).optional(),
+  structuredProfile: z.record(z.any()).optional(),
+  savedResponses: z.array(z.record(z.any())).max(100).optional(),
+  resumeFileBase64: z.string().max(4500000, 'Resume file base64 exceeds 4.5MB limit').optional(),
+  resumeFileName: z.string().max(255).optional(),
+  resumeMimeType: z.string().max(100).optional(),
 });
 
 export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
@@ -155,6 +183,16 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
           fullName: data.fullName,
           primaryTitle: data.primaryTitle,
           rawResumeText: data.rawResumeText,
+          ...(data.visaStatus && { visaStatus: data.visaStatus }),
+          ...(data.workPreference && { workPreference: data.workPreference }),
+          ...(data.securityClearance && { securityClearance: data.securityClearance }),
+          ...(data.yearsOfExperience !== undefined && { yearsOfExperience: data.yearsOfExperience }),
+          ...(data.keySkills && { keySkills: data.keySkills }),
+          ...(data.structuredProfile && { structuredProfile: data.structuredProfile }),
+          ...(data.savedResponses && { savedResponses: data.savedResponses }),
+          ...(data.resumeFileBase64 && { resumeFileBase64: data.resumeFileBase64 }),
+          ...(data.resumeFileName && { resumeFileName: data.resumeFileName }),
+          ...(data.resumeMimeType && { resumeMimeType: data.resumeMimeType }),
         })
         .returning();
 
