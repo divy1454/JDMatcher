@@ -143,7 +143,7 @@ export class GeminiService {
   static async evaluate(prompt: string): Promise<GeminiEvaluationResponse> {
     const startTime = Date.now();
     const client = this.getClient();
-    const modelName = 'gemini-3.5-flash-lite';
+    const modelName = 'gemini-3.8-flash';
 
     let finalPrompt = prompt;
     if (!prompt.includes('"jobTitle"') && !prompt.includes('"candidateFitCheck"') && !prompt.includes('CRITICAL JSON INSTRUCTION')) {
