@@ -133,9 +133,9 @@ def main():
         search_loc = "United States"
 
     try:
-        # Request more raw results upfront so post-filtering (reposts & strict 24h) yields full target count
-        fetch_multiplier = 2
-        raw_wanted = max(5, min(args.results_wanted * fetch_multiplier, 60))
+        # Fast fetch count: prioritize responsiveness and freshness without hitting excessive rate limits
+        fetch_multiplier = 1.2
+        raw_wanted = max(5, min(int(args.results_wanted * fetch_multiplier), 40))
 
         kwargs = {
             "site_name": filtered_sites,
@@ -187,11 +187,25 @@ def main():
             if not matches_country(loc, target_country):
                 continue
 
+            # Direct job URL resolution - strictly direct posting, never search query
+            direct_ats_url = item.get("job_url_direct")
+            job_post_url = item.get("job_url") or ""
+            site_name = str(item.get("site") or "unknown").lower()
+            raw_id = str(item.get("id") or "").split("-")[-1]
+
+            if "/jobs/search" in job_post_url or "/jobs-search" in job_post_url or "/Job/jobs.htm" in job_post_url or not job_post_url:
+                if site_name == "linkedin" and raw_id.isdigit():
+                    job_post_url = f"https://www.linkedin.com/jobs/view/{raw_id}"
+                elif site_name == "indeed" and raw_id:
+                    job_post_url = f"https://www.indeed.com/viewjob?jk={raw_id}"
+                elif site_name == "glassdoor" and raw_id:
+                    job_post_url = f"https://www.glassdoor.com/job-listing/j?jl={raw_id}"
+
             clean_jobs.append({
-                "id": str(item.get("id") or f"{item.get('site', 'job')}-{hash(item.get('job_url', ''))}"),
-                "site": str(item.get("site") or "unknown").lower(),
-                "jobUrl": item.get("job_url") or item.get("job_url_direct") or "",
-                "jobUrlDirect": item.get("job_url_direct"),
+                "id": str(item.get("id") or f"{site_name}-{hash(job_post_url)}"),
+                "site": site_name,
+                "jobUrl": job_post_url,
+                "jobUrlDirect": direct_ats_url,
                 "title": item.get("title") or "Untitled Position",
                 "company": item.get("company") or "Confidential / Client",
                 "location": loc or "USA",

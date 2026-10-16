@@ -133,11 +133,28 @@ const COUNTRY_OPTIONS = [
   { id: 'australia', label: '🇦🇺 Australia', locationPlaceholder: 'Sydney, Melbourne or Australia' },
 ];
 
+const PREFERENCES_STORAGE_KEY = 'jdmatcher_recruiter_job_hunter_preferences_v1';
+
+interface RecruiterJobHunterPreferences {
+  selectedCandidateId?: string;
+  searchTerm?: string;
+  location?: string;
+  country?: string;
+  stickToSite?: string;
+  selectedSites?: string[];
+  isRemoteOnly?: boolean;
+  jobType?: string;
+  resultsWanted?: number;
+  minSalaryFilter?: number;
+  sortByScore?: boolean;
+}
+
 export default function JobHunterPage() {
   // Candidate & Tailored Search State
   const [candidates, setCandidates] = useState<CandidateItem[]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>('');
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateItem | null>(null);
+  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
 
   // Search Parameters
   const [searchTerm, setSearchTerm] = useState('Full Stack Engineer');
@@ -149,7 +166,6 @@ export default function JobHunterPage() {
     'indeed',
     'zip_recruiter',
     'glassdoor',
-    'google',
   ]);
   const [isRemoteOnly, setIsRemoteOnly] = useState(true);
   const [jobType, setJobType] = useState('all');
@@ -214,50 +230,109 @@ export default function JobHunterPage() {
     },
   ];
 
-  // Fetch bench candidates on mount
+  // Fetch bench candidates and hydrate saved recruiter preferences on mount (NO AUTO-SEARCH)
   useEffect(() => {
-    async function loadCandidates() {
+    async function initPageAndPreferences() {
+      // 1. Read saved recruiter preferences from localStorage
+      let saved: RecruiterJobHunterPreferences | null = null;
+      try {
+        const rawSaved = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+        if (rawSaved) {
+          saved = JSON.parse(rawSaved);
+        }
+      } catch (e) {
+        console.warn('Failed to parse saved job hunter preferences', e);
+      }
+
+      // Restore parameters if present in saved preferences
+      if (saved) {
+        if (saved.searchTerm) setSearchTerm(saved.searchTerm);
+        if (saved.location) setLocation(saved.location);
+        if (saved.country) setCountry(saved.country);
+        if (saved.stickToSite) setStickToSite(saved.stickToSite);
+        if (Array.isArray(saved.selectedSites) && saved.selectedSites.length > 0) {
+          setSelectedSites(saved.selectedSites);
+        }
+        if (typeof saved.isRemoteOnly === 'boolean') setIsRemoteOnly(saved.isRemoteOnly);
+        if (saved.jobType) setJobType(saved.jobType);
+        if (saved.resultsWanted) setResultsWanted(saved.resultsWanted);
+        if (typeof saved.minSalaryFilter === 'number') setMinSalaryFilter(saved.minSalaryFilter);
+        if (typeof saved.sortByScore === 'boolean') setSortByScore(saved.sortByScore);
+      }
+
+      // 2. Load candidates from API
+      let loadedCandidates: CandidateItem[] = [];
       try {
         const raw = await apiRequest('/candidates');
-        // Handle array response from /api/candidates
         const list: CandidateItem[] = Array.isArray(raw)
           ? raw
           : Array.isArray((raw as any)?.candidates)
           ? (raw as any).candidates
           : [];
-
-        if (list && list.length > 0) {
-          setCandidates(list);
-          const first = list[0];
-          setSelectedCandidateId(first.id);
-          setSelectedCandidate(first);
-          if (first.primaryTitle) {
-            setSearchTerm(first.primaryTitle);
-          }
-          handleSearchForCandidate(first.id, list);
-        } else {
-          // If no bench candidates are added in the agency yet, use rich sample bench talent
-          setCandidates(FALLBACK_CANDIDATES);
-          const first = FALLBACK_CANDIDATES[0];
-          setSelectedCandidateId(first.id);
-          setSelectedCandidate(first);
-          setSearchTerm(first.primaryTitle);
-          handleSearchForCandidate(first.id, FALLBACK_CANDIDATES);
-        }
+        loadedCandidates = list && list.length > 0 ? list : FALLBACK_CANDIDATES;
       } catch (err) {
         console.error('Failed to load bench candidates, using fallback talent profiles:', err);
-        setCandidates(FALLBACK_CANDIDATES);
-        const first = FALLBACK_CANDIDATES[0];
-        setSelectedCandidateId(first.id);
-        setSelectedCandidate(first);
-        setSearchTerm(first.primaryTitle);
-        handleSearchForCandidate(first.id, FALLBACK_CANDIDATES);
+        loadedCandidates = FALLBACK_CANDIDATES;
       }
+
+      setCandidates(loadedCandidates);
+
+      // 3. Select target candidate according to saved preference or first candidate
+      const preferredCandId = saved?.selectedCandidateId;
+      const matchedCand =
+        loadedCandidates.find((c) => c.id === preferredCandId) || loadedCandidates[0];
+      if (matchedCand) {
+        setSelectedCandidateId(matchedCand.id);
+        setSelectedCandidate(matchedCand);
+        if (!saved?.searchTerm && matchedCand.primaryTitle) {
+          setSearchTerm(matchedCand.primaryTitle);
+        }
+      }
+
+      // NO AUTOMATIC SEARCH: search strictly triggers only when recruiter clicks search button
+      setPreferencesHydrated(true);
     }
-    loadCandidates();
+
+    initPageAndPreferences();
   }, []);
 
-  // When candidate selector changes, update selected candidate object
+  // Persist recruiter preferences automatically to localStorage whenever any filter changes
+  useEffect(() => {
+    if (!preferencesHydrated) return;
+    try {
+      const prefs: RecruiterJobHunterPreferences = {
+        selectedCandidateId,
+        searchTerm,
+        location,
+        country,
+        stickToSite,
+        selectedSites,
+        isRemoteOnly,
+        jobType,
+        resultsWanted,
+        minSalaryFilter,
+        sortByScore,
+      };
+      localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
+    } catch (e) {
+      console.warn('Could not persist recruiter job hunter preferences:', e);
+    }
+  }, [
+    preferencesHydrated,
+    selectedCandidateId,
+    searchTerm,
+    location,
+    country,
+    stickToSite,
+    selectedSites,
+    isRemoteOnly,
+    jobType,
+    resultsWanted,
+    minSalaryFilter,
+    sortByScore,
+  ]);
+
+  // When candidate selector changes, update selected candidate object (NO AUTO-SEARCH)
   const handleSelectCandidate = (candidateId: string) => {
     setSelectedCandidateId(candidateId);
     const cand = candidates.find((c) => c.id === candidateId) || null;
@@ -265,6 +340,24 @@ export default function JobHunterPage() {
     if (cand?.primaryTitle) {
       setSearchTerm(cand.primaryTitle);
     }
+    // Search is not automatically executed; user clicks search when ready
+  };
+
+  const handleResetPreferences = () => {
+    try {
+      localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+    } catch {}
+    setSearchTerm(selectedCandidate?.primaryTitle || 'Full Stack Engineer');
+    setLocation('Remote, USA');
+    setCountry('usa');
+    setStickToSite('all');
+    setSelectedSites(['linkedin', 'indeed', 'zip_recruiter', 'glassdoor']);
+    setIsRemoteOnly(true);
+    setJobType('all');
+    setResultsWanted(25);
+    setMinSalaryFilter(0);
+    setSortByScore(true);
+    showNotification('Recruiter filter preferences reset to default values.');
   };
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -752,6 +845,27 @@ export default function JobHunterPage() {
 
       {/* Main Search & Board Configuration Card */}
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-6">
+        {/* Recruiter Preference Header Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-emerald-500" />
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+              Recruiter Filter Preferences
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+              <BookmarkCheck className="h-3 w-3 text-emerald-500" />
+              Saved across visits
+            </span>
+          </div>
+          <button
+            onClick={handleResetPreferences}
+            className="text-[11px] font-semibold text-slate-500 hover:text-rose-500 dark:text-slate-400 dark:hover:text-rose-400 transition underline underline-offset-2"
+            title="Reset all search parameters back to default"
+          >
+            Reset to Defaults
+          </button>
+        </div>
+
         {/* Search Inputs: Role, Location & Country */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
           <div className="md:col-span-5 space-y-1.5">
@@ -1074,6 +1188,64 @@ export default function JobHunterPage() {
         </div>
       )}
 
+      {/* Initial State: Ready to Search (User must press Search button to start) */}
+      {!isLoading && !hasSearched && jobs.length === 0 && (
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 sm:p-12 text-center space-y-6 shadow-sm">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 text-emerald-500 border border-emerald-500/30 shadow-inner">
+            <Compass className="h-8 w-8 text-emerald-500 animate-pulse" />
+          </div>
+
+          <div className="space-y-2 max-w-lg mx-auto">
+            <h3 className="text-xl font-black text-slate-900 dark:text-white">
+              Ready to Search Live Jobs
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Your filter choices and target candidate are restored. When ready, press the search button below to hunt for live postings strictly posted in the last 24 hours across your selected job boards.
+            </p>
+          </div>
+
+          {selectedCandidate && (
+            <div className="inline-flex flex-wrap items-center justify-center gap-2 p-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
+              <span className="font-bold text-slate-700 dark:text-slate-300">Target Candidate:</span>
+              <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                {selectedCandidate.fullName}
+              </span>
+              <span className="text-slate-400">•</span>
+              <span className="text-slate-600 dark:text-slate-400 font-medium">
+                {selectedCandidate.primaryTitle}
+              </span>
+              {selectedCandidate.workPreference && (
+                <>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-slate-500">
+                    {selectedCandidate.workPreference}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              onClick={() => handleSearchForCandidate()}
+              disabled={isLoading}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-xl shadow-emerald-600/30 transition transform hover:-translate-y-0.5"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span>Search Jobs for {selectedCandidate?.fullName || 'Candidate'}</span>
+            </button>
+            <button
+              onClick={() => handleGeneralSearch()}
+              disabled={isLoading}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs border border-slate-200 dark:border-slate-700 transition"
+            >
+              <Search className="h-4 w-4" />
+              <span>General Search ({searchTerm})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Empty State */}
       {!isLoading && filteredJobs.length === 0 && hasSearched && (
         <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
@@ -1142,16 +1314,18 @@ export default function JobHunterPage() {
 
                   {/* Title & Company */}
                   <div className="space-y-1">
-                    <h3
-                      onClick={() => setActiveModalJob(job)}
-                      className="text-base font-bold text-slate-900 dark:text-white group-hover:text-emerald-500 transition cursor-pointer line-clamp-2"
-                      title={job.title}
+                    <a
+                      href={job.jobUrlDirect || job.jobUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-base font-bold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 transition break-words inline-block leading-snug"
+                      title={`Open live post: ${job.title}`}
                     >
                       {job.title}
-                    </h3>
+                    </a>
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400">
                       <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                      <span className="truncate">{job.company}</span>
+                      <span className="break-words">{job.company}</span>
                     </div>
                   </div>
 
@@ -1270,25 +1444,26 @@ export default function JobHunterPage() {
                   </div>
 
                   <div className="flex items-center gap-1.5">
-                    {/* View Details */}
+                    {/* View Details Modal */}
                     <button
                       onClick={() => setActiveModalJob(job)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                      title="View Full Job Description"
+                      className="px-2 py-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium transition"
+                      title="View Full Job Description Details"
                     >
-                      <ChevronRight className="h-4 w-4" />
+                      Details
                     </button>
 
-                    {/* External Link */}
-                    {job.jobUrl && (
+                    {/* External Direct Link Button */}
+                    {(job.jobUrlDirect || job.jobUrl) && (
                       <a
-                        href={job.jobUrl}
+                        href={job.jobUrlDirect || job.jobUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition"
-                        title={`Open live posting on ${board.label}`}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm transition"
+                        title={`Open verified live job post on ${board.label}`}
                       >
-                        <ExternalLink className="h-4 w-4" />
+                        <span>{job.jobUrlDirect ? 'Direct Apply' : `View on ${board.label}`}</span>
+                        <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
                   </div>
@@ -1465,14 +1640,18 @@ export default function JobHunterPage() {
                   <BookmarkCheck className="h-4 w-4" />
                   <span>Save to Matched JDs</span>
                 </button>
-                {activeModalJob.jobUrl && (
+                {(activeModalJob.jobUrlDirect || activeModalJob.jobUrl) && (
                   <a
-                    href={activeModalJob.jobUrl}
+                    href={activeModalJob.jobUrlDirect || activeModalJob.jobUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/20 transition"
                   >
-                    <span>Apply / View on Board</span>
+                    <span>
+                      {activeModalJob.jobUrlDirect
+                        ? 'Direct Apply (Company ATS)'
+                        : `View Post on ${BOARD_CONFIG[activeModalJob.site]?.label || activeModalJob.site}`}
+                    </span>
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 )}
