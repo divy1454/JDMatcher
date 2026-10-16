@@ -3,7 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { organizations, users, tokenConsumptionLedger, matchedJds, invoices } from '../db/schema.js';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, desc, sql, and, gte, lte, ne } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
 import { BillingService } from '../services/billingService.js';
 
@@ -173,12 +173,20 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     }
   );
 
-  // GET /api/orgs/my-org (Org Admin only: retrieves agency info & billing HUD data)
+const hudFilterQuerySchema = z.object({
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  recruiterId: z.string().optional(),
+  actionType: z.enum(['all', 'jd_evaluation', 'resume_analysis']).optional(),
+});
+
+  // GET /api/orgs/my-org (Org Admin only: retrieves agency info & billing HUD data with optional filters)
   fastify.get(
     '/my-org',
     { preHandler: [authGuard, requireRole(['org_admin'])] },
     async (request, reply) => {
       const user = request.user!;
+      const query = hudFilterQuerySchema.safeParse(request.query).data || {};
 
       const [org] = await db
         .select()
@@ -190,7 +198,29 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         return reply.status(404).send({ error: 'NOT_FOUND', message: 'Organization not found' });
       }
 
-      // Aggregated Ledger per recruiter (agency oversight per recruiter)
+      // Build dynamic filter conditions for the ledger
+      const ledgerConditions = [eq(tokenConsumptionLedger.organizationId, user.organizationId!)];
+
+      if (query.recruiterId && query.recruiterId !== 'all') {
+        ledgerConditions.push(eq(tokenConsumptionLedger.recruiterId, query.recruiterId));
+      }
+      if (query.actionType === 'jd_evaluation') {
+        ledgerConditions.push(ne(tokenConsumptionLedger.actionType, 'resume_analysis'));
+      } else if (query.actionType === 'resume_analysis') {
+        ledgerConditions.push(eq(tokenConsumptionLedger.actionType, 'resume_analysis'));
+      }
+      if (query.startDate) {
+        ledgerConditions.push(gte(tokenConsumptionLedger.timestamp, new Date(query.startDate)));
+      }
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        if (query.endDate.length === 10) {
+          end.setHours(23, 59, 59, 999);
+        }
+        ledgerConditions.push(lte(tokenConsumptionLedger.timestamp, end));
+      }
+
+      // Aggregated Ledger per recruiter (with active filter conditions applied)
       const recruiterConsumption = await db
         .select({
           recruiterId: tokenConsumptionLedger.recruiterId,
@@ -205,9 +235,18 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         })
         .from(tokenConsumptionLedger)
         .leftJoin(users, eq(tokenConsumptionLedger.recruiterId, users.id))
-        .where(eq(tokenConsumptionLedger.organizationId, user.organizationId!))
+        .where(and(...ledgerConditions))
         .groupBy(tokenConsumptionLedger.recruiterId, users.fullName, users.email)
         .orderBy(desc(sql`sum(${tokenConsumptionLedger.billedCostUsd})`));
+
+      const [filteredStats] = await db
+        .select({
+          totalEvaluations: sql<number>`count(${tokenConsumptionLedger.id})::int`,
+          totalTokens: sql<number>`coalesce(sum(${tokenConsumptionLedger.totalTokens}), 0)::int`,
+          totalBilledCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
+        })
+        .from(tokenConsumptionLedger)
+        .where(and(...ledgerConditions));
 
       const [orgResumeStats] = await db
         .select({
@@ -260,19 +299,46 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           resumeAnalysisCount: orgResumeStats?.totalAnalyses || 0,
           resumeAnalysisBilledAmount: Number((orgResumeStats?.totalBilled || 0).toFixed(4)),
         },
+        filteredStats: {
+          totalEvaluations: filteredStats?.totalEvaluations || 0,
+          totalTokens: filteredStats?.totalTokens || 0,
+          totalBilledCostUsd: Number((filteredStats?.totalBilledCostUsd || 0).toFixed(4)),
+        },
         recruiterConsumption,
       });
     }
   );
 
-  // GET /api/orgs/my-org/analytics (Org Admin: API usage charts data)
+  // GET /api/orgs/my-org/analytics (Org Admin: API usage charts data with filter support)
   fastify.get(
     '/my-org/analytics',
     { preHandler: [authGuard, requireRole(['org_admin'])] },
     async (request, reply) => {
       const user = request.user!;
+      const query = hudFilterQuerySchema.safeParse(request.query).data || {};
 
-      // 1. Daily evaluations & tokens over last 14 days
+      const ledgerConditions = [eq(tokenConsumptionLedger.organizationId, user.organizationId!)];
+
+      if (query.recruiterId && query.recruiterId !== 'all') {
+        ledgerConditions.push(eq(tokenConsumptionLedger.recruiterId, query.recruiterId));
+      }
+      if (query.actionType === 'jd_evaluation') {
+        ledgerConditions.push(ne(tokenConsumptionLedger.actionType, 'resume_analysis'));
+      } else if (query.actionType === 'resume_analysis') {
+        ledgerConditions.push(eq(tokenConsumptionLedger.actionType, 'resume_analysis'));
+      }
+      if (query.startDate) {
+        ledgerConditions.push(gte(tokenConsumptionLedger.timestamp, new Date(query.startDate)));
+      }
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        if (query.endDate.length === 10) {
+          end.setHours(23, 59, 59, 999);
+        }
+        ledgerConditions.push(lte(tokenConsumptionLedger.timestamp, end));
+      }
+
+      // 1. Daily evaluations & tokens
       const dailyStats = await db
         .select({
           date: sql<string>`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM-DD')`,
@@ -281,7 +347,7 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           billedCostUsd: sql<number>`coalesce(sum(${tokenConsumptionLedger.billedCostUsd}), 0)::float`,
         })
         .from(tokenConsumptionLedger)
-        .where(eq(tokenConsumptionLedger.organizationId, user.organizationId!))
+        .where(and(...ledgerConditions))
         .groupBy(sql`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM-DD')`)
         .orderBy(sql`to_char(${tokenConsumptionLedger.timestamp}, 'YYYY-MM-DD')`);
 
@@ -296,28 +362,33 @@ export const orgsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         })
         .from(tokenConsumptionLedger)
         .leftJoin(users, eq(tokenConsumptionLedger.recruiterId, users.id))
-        .where(eq(tokenConsumptionLedger.organizationId, user.organizationId!))
+        .where(and(...ledgerConditions))
         .groupBy(tokenConsumptionLedger.recruiterId, users.fullName)
         .orderBy(desc(sql`count(${tokenConsumptionLedger.id})`));
 
-      // 3. Total evaluations executed by this organization in the ledger
-      const totalLedgerEvals = await db
-        .select({
-          count: sql<number>`count(${tokenConsumptionLedger.id})::int`,
-        })
-        .from(tokenConsumptionLedger)
-        .where(eq(tokenConsumptionLedger.organizationId, user.organizationId!));
+      // 3. Verdict distribution from matched JDs
+      const matchedJdConditions = [eq(matchedJds.organizationId, user.organizationId!)];
+      if (query.recruiterId && query.recruiterId !== 'all') {
+        matchedJdConditions.push(eq(matchedJds.recruiterId, query.recruiterId));
+      }
+      if (query.startDate) {
+        matchedJdConditions.push(gte(matchedJds.appliedAt, new Date(query.startDate)));
+      }
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        if (query.endDate.length === 10) {
+          end.setHours(23, 59, 59, 999);
+        }
+        matchedJdConditions.push(lte(matchedJds.appliedAt, end));
+      }
 
-      const totalEvaluationsCount = totalLedgerEvals[0]?.count || 0;
-
-      // 4. Verdict distribution from matched JDs
       const verdictRows = await db
         .select({
           verdict: sql<string>`${matchedJds.verdict}`,
           count: sql<number>`count(${matchedJds.id})::int`,
         })
         .from(matchedJds)
-        .where(eq(matchedJds.organizationId, user.organizationId!))
+        .where(and(...matchedJdConditions))
         .groupBy(matchedJds.verdict);
 
       const applyCount = verdictRows.find((r) => r.verdict === 'APPLY')?.count || 0;

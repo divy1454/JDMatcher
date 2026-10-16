@@ -201,7 +201,8 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       let activeApiUrl = data.apiUrl;
       // If apiUrl is missing, or set to the frontend domain, or contains old test URLs, fix to real backend!
       if (!activeApiUrl || activeApiUrl.includes('jd-matcher-pdm1') || activeApiUrl.includes('jdmatcher-fe') || activeApiUrl.includes('recruiter-portal') || activeApiUrl.includes('jdmatcher-api.onrender.com')) {
-        if (data.frontendUrl?.includes('localhost') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        const isUnpackedDev = typeof chrome !== 'undefined' && chrome.runtime?.getManifest && !chrome.runtime.getManifest().update_url;
+        if (data.frontendUrl?.includes('localhost') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || isUnpackedDev) {
           activeApiUrl = 'http://localhost:4000';
         } else {
           activeApiUrl = DEFAULT_API_URL;
@@ -211,10 +212,10 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
       setServerUrl(activeApiUrl);
 
       let activeFrontendUrl = data.frontendUrl;
-      // If frontendUrl is missing or points to the old pdm1/app domains, update to the actual frontend: jdmatcher-fe.onrender.com
+      // If frontendUrl is missing or points to the old pdm1/app domains, update to the actual frontend
       if (!activeFrontendUrl || activeFrontendUrl.includes('jd-matcher-pdm1') || activeFrontendUrl.includes('jdmatcher-app.onrender.com')) {
-        activeFrontendUrl = DEFAULT_FRONTEND_URL;
-        await chrome.storage.local.set({ frontendUrl: DEFAULT_FRONTEND_URL });
+        activeFrontendUrl = activeApiUrl.includes('localhost') ? 'http://localhost:3000' : DEFAULT_FRONTEND_URL;
+        await chrome.storage.local.set({ frontendUrl: activeFrontendUrl });
       }
       setFrontendUrl(activeFrontendUrl);
 
@@ -1476,13 +1477,79 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
               {showServerConfig && (
                 <div className="jdm-server-config-card">
+                  {/* 1-Click Environment Presets */}
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const localApi = 'http://localhost:4000';
+                        const localFe = 'http://localhost:3000';
+                        setServerUrl(localApi);
+                        setFrontendUrl(localFe);
+                        await chrome.storage.local.set({ apiUrl: localApi, frontendUrl: localFe });
+                        showToast('Connected to Localhost (4000 / 3000)', 'info');
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: serverUrl.includes('localhost') ? '1.5px solid #6366f1' : '1px solid #cbd5e1',
+                        background: serverUrl.includes('localhost') ? 'rgba(99, 102, 241, 0.12)' : '#f8fafc',
+                        color: serverUrl.includes('localhost') ? '#4f46e5' : '#475569',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <span>⚡</span>
+                      <span>Localhost (4000)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const cloudApi = 'https://jdmatcher-be.onrender.com';
+                        const cloudFe = 'https://jdmatcher-fe.onrender.com';
+                        setServerUrl(cloudApi);
+                        setFrontendUrl(cloudFe);
+                        await chrome.storage.local.set({ apiUrl: cloudApi, frontendUrl: cloudFe });
+                        showToast('Connected to Render Cloud', 'info');
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: !serverUrl.includes('localhost') ? '1.5px solid #6366f1' : '1px solid #cbd5e1',
+                        background: !serverUrl.includes('localhost') ? 'rgba(99, 102, 241, 0.12)' : '#f8fafc',
+                        color: !serverUrl.includes('localhost') ? '#4f46e5' : '#475569',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <span>☁️</span>
+                      <span>Cloud (Render)</span>
+                    </button>
+                  </div>
+
                   <label className="jdm-field-label" style={{ marginBottom: '4px' }}>Backend API URL</label>
                   <input
                     type="url"
                     className="jdm-text-input"
                     value={serverUrl}
-                    onChange={(e) => setServerUrl(e.target.value)}
-                    placeholder="https://jdmatcher-be.onrender.com"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setServerUrl(val);
+                      chrome.storage.local.set({ apiUrl: val.trim().replace(/\/+$/, '') });
+                    }}
+                    placeholder="http://localhost:4000 or https://jdmatcher-be.onrender.com"
                     style={{ fontSize: '11px', marginBottom: '6px' }}
                   />
                   <label className="jdm-field-label" style={{ marginBottom: '4px' }}>Frontend App URL</label>
@@ -1491,14 +1558,18 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                     className="jdm-text-input"
                     value={frontendUrl}
                     onChange={(e) => {
-                      setFrontendUrl(e.target.value);
-                      chrome.storage.local.set({ frontendUrl: e.target.value.trim().replace(/\/+$/, '') });
+                      const val = e.target.value;
+                      setFrontendUrl(val);
+                      chrome.storage.local.set({ frontendUrl: val.trim().replace(/\/+$/, '') });
                     }}
-                    placeholder="https://jdmatcher-fe.onrender.com"
+                    placeholder="http://localhost:3000 or https://jdmatcher-fe.onrender.com"
                     style={{ fontSize: '11px' }}
                   />
                   <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-                    Tip: Enter your live Render backend URL above.
+                    Active environment:{' '}
+                    <strong style={{ color: serverUrl.includes('localhost') ? '#10b981' : '#6366f1' }}>
+                      {serverUrl.includes('localhost') ? 'Localhost Development' : 'Cloud Production'}
+                    </strong>
                   </div>
                 </div>
               )}

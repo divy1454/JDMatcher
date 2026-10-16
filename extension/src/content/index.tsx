@@ -110,16 +110,16 @@ function initWidget() {
           if (!stored.token || stored.token !== localToken) {
             updates.token = localToken;
           }
-          const targetFrontend = window.location.origin.includes('localhost')
+          const isLocalhost = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1');
+          const targetFrontend = isLocalhost
             ? window.location.origin
             : 'https://jdmatcher-fe.onrender.com';
           if (!stored.frontendUrl || stored.frontendUrl !== targetFrontend || stored.frontendUrl.includes('jd-matcher-pdm1')) {
             updates.frontendUrl = targetFrontend;
           }
-          if (!stored.apiUrl || stored.apiUrl.includes('jd-matcher-pdm1') || stored.apiUrl.includes('recruiter-portal') || stored.apiUrl.includes('jdmatcher-fe')) {
-            updates.apiUrl = window.location.origin.includes('localhost')
-              ? 'http://localhost:4000'
-              : 'https://jdmatcher-be.onrender.com';
+          const targetApi = isLocalhost ? 'http://localhost:4000' : 'https://jdmatcher-be.onrender.com';
+          if (!stored.apiUrl || (isLocalhost && stored.apiUrl !== 'http://localhost:4000') || stored.apiUrl.includes('jd-matcher-pdm1') || stored.apiUrl.includes('recruiter-portal') || stored.apiUrl.includes('jdmatcher-fe')) {
+            updates.apiUrl = targetApi;
           }
           if (Object.keys(updates).length > 0) {
             await chrome.storage.local.set(updates);

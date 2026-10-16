@@ -240,13 +240,14 @@ async function handleSyncFromPortal() {
         const token = results[0].result.token;
         const origin = results[0].result.origin;
 
-        let candidateApiUrl = origin.includes('localhost') || origin.includes('127.0.0.1')
-          ? 'http://localhost:4000'
-          : API_BASE_URL;
+        const isLocalhostOrigin = origin.includes('localhost') || origin.includes('127.0.0.1');
+        let candidateApiUrl = isLocalhostOrigin ? 'http://localhost:4000' : API_BASE_URL;
 
         const storage = await chrome.storage.local.get(['apiUrl']);
         if (storage.apiUrl && !storage.apiUrl.includes('jd-matcher-pdm1') && !storage.apiUrl.includes('recruiter-portal') && !storage.apiUrl.includes('jdmatcher-fe')) {
-          candidateApiUrl = storage.apiUrl;
+          if (!isLocalhostOrigin) {
+            candidateApiUrl = storage.apiUrl;
+          }
         }
 
         let userName = 'Recruiter';
