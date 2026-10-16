@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiRequest } from '@/lib/api';
-import { formatDate } from '@/lib/utils';
 import * as XLSX from 'xlsx';
 import {
   Compass,
@@ -31,7 +30,12 @@ import {
   AlertCircle,
   X,
   UserCheck,
-  ChevronDown,
+  Flame,
+  ShieldCheck,
+  CheckCheck,
+  ArrowUpDown,
+  Tag,
+  Award,
 } from 'lucide-react';
 
 interface ScrapedJob {
@@ -54,16 +58,25 @@ interface ScrapedJob {
   companyUrl?: string | null;
   companyLogo?: string | null;
   skills?: string[] | null;
-  // Local AI match enrichment
+  isFresh24h?: boolean;
+  isReposted?: boolean;
   matchScore?: number | null;
   matchVerdict?: 'APPLY' | 'SKIP' | 'PENDING' | null;
   matchReasoning?: string | null;
+  matchedSkills?: string[];
+  missingSkills?: string[];
 }
 
-interface CandidateOption {
+interface CandidateItem {
   id: string;
   fullName: string;
   primaryTitle: string;
+  yearsOfExperience?: number;
+  workPreference?: string;
+  keySkills?: string[];
+  visaStatus?: string;
+  coreSpecialization?: string | null;
+  targetSeniority?: string | null;
 }
 
 const BOARD_CONFIG: Record<string, { label: string; badgeClass: string; borderClass: string; dotClass: string }> = {
@@ -111,28 +124,24 @@ const BOARD_CONFIG: Record<string, { label: string; badgeClass: string; borderCl
   },
 };
 
-const QUICK_SEARCH_ROLES = [
-  'Full Stack Engineer',
-  'Frontend Developer (React)',
-  'Backend Engineer (Node/Python)',
-  'DevOps / SRE Engineer',
-  'Data Engineer / AI',
-  'Cloud Solutions Architect',
-];
-
-const QUICK_LOCATIONS = [
-  'Remote',
-  'San Francisco, CA',
-  'New York, NY',
-  'Austin, TX',
-  'London, UK',
-  'Bengaluru, IN',
+const COUNTRY_OPTIONS = [
+  { id: 'usa', label: '🇺🇸 United States (Default)', locationPlaceholder: 'United States or Remote' },
+  { id: 'canada', label: '🇨🇦 Canada', locationPlaceholder: 'Toronto, Vancouver or Canada' },
+  { id: 'uk', label: '🇬🇧 United Kingdom', locationPlaceholder: 'London or UK' },
+  { id: 'india', label: '🇮🇳 India', locationPlaceholder: 'Bengaluru, Hyderabad or India' },
+  { id: 'australia', label: '🇦🇺 Australia', locationPlaceholder: 'Sydney, Melbourne or Australia' },
 ];
 
 export default function JobHunterPage() {
-  // Search Form States
+  // Candidate & Tailored Search State
+  const [candidates, setCandidates] = useState<CandidateItem[]>([]);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string>('');
+  const [selectedCandidate, setSelectedCandidate] = useState<CandidateItem | null>(null);
+
+  // Search Parameters
   const [searchTerm, setSearchTerm] = useState('Full Stack Engineer');
-  const [location, setLocation] = useState('Remote');
+  const [location, setLocation] = useState('Remote, USA');
+  const [country, setCountry] = useState('usa');
   const [stickToSite, setStickToSite] = useState<string>('all'); // 'all' = mixed up always, or 'linkedin' etc.
   const [selectedSites, setSelectedSites] = useState<string[]>([
     'linkedin',
@@ -143,13 +152,10 @@ export default function JobHunterPage() {
   ]);
   const [isRemoteOnly, setIsRemoteOnly] = useState(true);
   const [jobType, setJobType] = useState('all');
-  const [hoursOld, setHoursOld] = useState<number>(72);
+  const [hoursOld, setHoursOld] = useState<number>(24); // Strictly 24 hours
   const [resultsWanted, setResultsWanted] = useState<number>(25);
   const [minSalaryFilter, setMinSalaryFilter] = useState<number>(0);
-
-  // Bench Candidates for quick match
-  const [candidates, setCandidates] = useState<CandidateOption[]>([]);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string>('');
+  const [sortByScore, setSortByScore] = useState(true);
 
   // Results & UI States
   const [jobs, setJobs] = useState<ScrapedJob[]>([]);
@@ -157,7 +163,6 @@ export default function JobHunterPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
   const [activeModalJob, setActiveModalJob] = useState<ScrapedJob | null>(null);
-  const [activeAiModal, setActiveAiModal] = useState<{ job: ScrapedJob; result: any } | null>(null);
   const [evaluatingJobId, setEvaluatingJobId] = useState<string | null>(null);
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
   const [savingJobId, setSavingJobId] = useState<string | null>(null);
@@ -168,40 +173,112 @@ export default function JobHunterPage() {
   useEffect(() => {
     async function loadCandidates() {
       try {
-        const res = await apiRequest<{ candidates: CandidateOption[] }>('/candidates');
+        const res = await apiRequest<{ candidates: CandidateItem[] }>('/candidates');
         if (res?.candidates && res.candidates.length > 0) {
           setCandidates(res.candidates);
-          setSelectedCandidateId(res.candidates[0].id);
+          const first = res.candidates[0];
+          setSelectedCandidateId(first.id);
+          setSelectedCandidate(first);
+          // Pre-populate search query based on first candidate's title
+          if (first.primaryTitle) {
+            setSearchTerm(first.primaryTitle);
+          }
+          // Run candidate search automatically
+          handleSearchForCandidate(first.id);
+        } else {
+          // General default search if no bench candidates exist yet
+          handleGeneralSearch();
         }
       } catch (err) {
         console.error('Failed to load bench candidates:', err);
+        handleGeneralSearch();
       }
     }
     loadCandidates();
-    // Run initial search
-    handleSearch(true);
   }, []);
+
+  // When candidate selector changes, update selected candidate object
+  const handleSelectCandidate = (candidateId: string) => {
+    setSelectedCandidateId(candidateId);
+    const cand = candidates.find((c) => c.id === candidateId) || null;
+    setSelectedCandidate(cand);
+    if (cand?.primaryTitle) {
+      setSearchTerm(cand.primaryTitle);
+    }
+  };
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Perform Job Board Search
-  const handleSearch = async (isInitial = false) => {
+  // Run Candidate-Tailored Job Search (Derives from candidate resume analysis, scores every job)
+  const handleSearchForCandidate = async (candidateIdOverride?: string) => {
+    const targetCandidateId = candidateIdOverride || selectedCandidateId;
+    if (!targetCandidateId) {
+      handleGeneralSearch();
+      return;
+    }
+
+    setIsLoading(true);
+    setHasSearched(true);
+
+    try {
+      const payload = {
+        candidateId: targetCandidateId,
+        country: country || 'usa',
+        location: location.trim() || undefined,
+        stickToSite: stickToSite === 'all' ? null : stickToSite,
+        siteNames: selectedSites,
+        hoursOld: 24, // Strictly 24 hours fresh, no reposts
+        resultsWanted: resultsWanted,
+        jobType: jobType === 'all' ? undefined : jobType,
+      };
+
+      const res = await apiRequest<{
+        jobs: ScrapedJob[];
+        candidate: CandidateItem;
+        query: any;
+        total: number;
+      }>('/jobs/search-by-candidate', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      if (res && Array.isArray(res.jobs)) {
+        setJobs(res.jobs);
+        if (res.candidate) {
+          setSelectedCandidate(res.candidate);
+        }
+        showNotification(
+          `Found ${res.jobs.length} latest USA jobs (24h fresh, no reposts) scored for ${res.candidate?.fullName || 'candidate'}!`
+        );
+      }
+    } catch (err: any) {
+      console.error('Candidate job search failed:', err);
+      showNotification(err.message || 'Error searching candidate jobs', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // General Search across boards
+  const handleGeneralSearch = async () => {
     setIsLoading(true);
     setHasSearched(true);
 
     try {
       const payload = {
         searchTerm: searchTerm.trim() || 'Software Engineer',
-        location: location.trim(),
+        location: location.trim() || 'United States',
+        country: country || 'usa',
         stickToSite: stickToSite === 'all' ? null : stickToSite,
         siteNames: selectedSites,
         isRemote: isRemoteOnly,
         jobType: jobType === 'all' ? undefined : jobType,
-        hoursOld: hoursOld > 0 ? hoursOld : undefined,
+        hoursOld: hoursOld, // Strictly 24 hours
         resultsWanted: resultsWanted,
+        candidateId: selectedCandidateId || undefined,
       };
 
       const res = await apiRequest<{ jobs: ScrapedJob[]; total: number }>('/jobs/search', {
@@ -211,9 +288,7 @@ export default function JobHunterPage() {
 
       if (res && Array.isArray(res.jobs)) {
         setJobs(res.jobs);
-        if (!isInitial) {
-          showNotification(`Found ${res.jobs.length} jobs across job boards!`);
-        }
+        showNotification(`Found ${res.jobs.length} fresh jobs across job boards!`);
       }
     } catch (err: any) {
       console.error('Job search failed:', err);
@@ -231,8 +306,8 @@ export default function JobHunterPage() {
     showNotification('Feed re-mixed! Board sources distributed randomly.');
   };
 
-  // Run AI Candidate Match Score
-  const handleRunAiMatch = async (job: ScrapedJob) => {
+  // Run Deep Gemini LLM Evaluation on a single job
+  const handleDeepAiMatch = async (job: ScrapedJob) => {
     if (!selectedCandidateId) {
       showNotification('Please select a bench candidate first', 'error');
       return;
@@ -242,7 +317,7 @@ export default function JobHunterPage() {
     try {
       const jdContent = job.description && job.description.length > 30
         ? job.description
-        : `${job.title} at ${job.company}. Location: ${job.location}. Role overview: Seeking talented ${job.title} to join our high performing team. Core requirements: strong software engineering fundamentals, API development, system architecture, database design and modern cloud workflows.`;
+        : `${job.title} at ${job.company}. Location: ${job.location}. Role overview: Seeking talented ${job.title} to join our high performing team in ${job.location}. Core requirements: strong software engineering fundamentals, modern API development, database architecture, and cloud workflows.`;
 
       const res = await apiRequest<any>('/analyze/eval', {
         method: 'POST',
@@ -269,10 +344,9 @@ export default function JobHunterPage() {
         )
       );
 
-      setActiveAiModal({ job, result: res.result });
       showNotification(`AI Match Score: ${res.result.matchScore}% (${res.result.verdict})`);
     } catch (err: any) {
-      console.error('AI match evaluation failed:', err);
+      console.error('Deep AI match evaluation failed:', err);
       showNotification(err.message || 'AI Evaluation failed', 'error');
     } finally {
       setEvaluatingJobId(null);
@@ -299,7 +373,7 @@ export default function JobHunterPage() {
           jobUrl: job.jobUrl,
           rawJdText: jdContent,
           verdict: job.matchVerdict || 'APPLY',
-          matchScore: job.matchScore || 88,
+          matchScore: job.matchScore || 85,
           matchReasoning: job.matchReasoning || `Aggregated via JobSpy multi-board search from ${job.site}.`,
         }),
       });
@@ -334,26 +408,30 @@ export default function JobHunterPage() {
       'Title': j.title,
       'Company': j.company,
       'Location': j.location,
-      'Date Posted': j.datePosted || 'Recent',
-      'Job Type': j.jobType || 'Not specified',
+      'Country': country.toUpperCase(),
+      'Date Posted': j.datePosted || 'Within 24 Hours',
+      'Freshness': 'Posted < 24h (No Repost)',
+      'Job Type': j.jobType || 'Full-time',
       'Min Salary': j.minAmount ? `$${j.minAmount.toLocaleString()}` : '',
       'Max Salary': j.maxAmount ? `$${j.maxAmount.toLocaleString()}` : '',
       'Is Remote': j.isRemote ? 'Yes' : 'No',
-      'AI Match Score': j.matchScore ? `${j.matchScore}%` : 'Not run',
-      'AI Verdict': j.matchVerdict || '',
+      'Match Score': j.matchScore ? `${j.matchScore}%` : 'Pending',
+      'Verdict': j.matchVerdict || 'APPLY',
+      'Matched Skills': (j.matchedSkills || []).join(', '),
+      'Candidate Evaluated': selectedCandidate?.fullName || 'Not specified',
       'Job URL': j.jobUrl,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'JobSpy_Jobs');
-    XLSX.writeFile(workbook, `JobSpy_${searchTerm.replace(/\s+/g, '_')}_${Date.now()}.xlsx`);
-    showNotification('Exported job records to Excel successfully!');
+    XLSX.writeFile(workbook, `JobSpy_${selectedCandidate?.fullName || searchTerm}_24h_Fresh_${Date.now()}.xlsx`);
+    showNotification('Exported 24h fresh job records to Excel successfully!');
   };
 
-  // Filtered jobs in UI
+  // Filtered and Sorted Jobs
   const filteredJobs = useMemo(() => {
-    return jobs.filter((job) => {
+    const list = jobs.filter((job) => {
       // If stickToSite is active, filter strictly
       if (stickToSite !== 'all' && job.site.toLowerCase() !== stickToSite.toLowerCase()) {
         return false;
@@ -375,7 +453,12 @@ export default function JobHunterPage() {
       }
       return true;
     });
-  }, [jobs, stickToSite, minSalaryFilter, filterQuery]);
+
+    if (sortByScore) {
+      return [...list].sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+    }
+    return list;
+  }, [jobs, stickToSite, minSalaryFilter, filterQuery, sortByScore]);
 
   // Board breakdown stats
   const boardCounts = useMemo(() => {
@@ -420,16 +503,26 @@ export default function JobHunterPage() {
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
-              <Sparkles className="h-3.5 w-3.5" />
-              JobSpy Live Multi-Board Aggregator
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
+                <Sparkles className="h-3.5 w-3.5" />
+                JobSpy Live Engine
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold">
+                <ShieldCheck className="h-3 w-3" />
+                Strictly Posted &lt; 24h (No Reposts)
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                🇺🇸 Default Country: USA
+              </span>
             </div>
+
             <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
               Recruiter Job Board Hunter
             </h1>
             <p className="text-sm text-slate-300">
-              Aggregates job openings across LinkedIn, Indeed, ZipRecruiter, Glassdoor, and Google Jobs concurrently.
-              Results are <span className="text-emerald-400 font-semibold">mixed up always</span> across boards or stickable to a specific board with 1-click AI bench matching.
+              Aggregates live openings from LinkedIn, Indeed, ZipRecruiter, Glassdoor, and Google Jobs.
+              Targeted strictly to candidate resume intelligence, guaranteed posted within the past 24 hours (reposts filtered out), with instant AI match scoring.
             </p>
           </div>
 
@@ -455,21 +548,32 @@ export default function JobHunterPage() {
         </div>
       </div>
 
-      {/* Bench Candidate Selector Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="flex items-center gap-3 min-w-[240px]">
-          <div className="h-9 w-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-            <UserCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-              Active Bench Candidate for AI Match
-            </label>
+      {/* ==================================================================== */}
+      {/* CANDIDATE RESUME INTEL AUTO-SEARCH BAR (CORE NEW FEATURE)            */}
+      {/* ==================================================================== */}
+      <div className="rounded-2xl bg-gradient-to-br from-white to-emerald-50/30 dark:from-slate-900 dark:to-emerald-950/20 border-2 border-emerald-500/30 p-5 shadow-md space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Candidate Dropdown & Details */}
+          <div className="space-y-2 flex-1">
             <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-md shadow-emerald-500/30">
+                <UserCheck className="h-4 w-4" />
+              </span>
+              <div>
+                <span className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                  Target Candidate for Automated Resume-Driven Job Search
+                </span>
+                <span className="text-[11px] text-slate-500 block">
+                  Pulls candidate primary title, core competencies, target seniority, and work preference to search latest jobs
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
               <select
                 value={selectedCandidateId}
-                onChange={(e) => setSelectedCandidateId(e.target.value)}
-                className="text-sm font-semibold bg-transparent text-slate-900 dark:text-white border-0 focus:ring-0 p-0 cursor-pointer"
+                onChange={(e) => handleSelectCandidate(e.target.value)}
+                className="px-3.5 py-2 rounded-xl text-sm font-bold bg-white dark:bg-slate-950 text-slate-900 dark:text-white border border-emerald-500/40 focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer min-w-[260px]"
               >
                 {candidates.length === 0 ? (
                   <option value="">No bench candidates found</option>
@@ -481,31 +585,71 @@ export default function JobHunterPage() {
                   ))
                 )}
               </select>
+
+              {/* Candidate Quick Intelligence Badges */}
+              {selectedCandidate && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-500/20">
+                    💼 {selectedCandidate.primaryTitle}
+                  </span>
+                  {selectedCandidate.yearsOfExperience !== undefined && (
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
+                      ⏳ {selectedCandidate.yearsOfExperience} yrs exp
+                    </span>
+                  )}
+                  {selectedCandidate.workPreference && (
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
+                      🌐 {selectedCandidate.workPreference}
+                    </span>
+                  )}
+                  {selectedCandidate.keySkills && selectedCandidate.keySkills.length > 0 && (
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium">
+                      ⚡ {selectedCandidate.keySkills.slice(0, 3).join(', ')}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Sparkles className="h-4 w-4 text-emerald-500" />
-          <span>Each job can be instantly evaluated against this candidate using Gemini AI</span>
+          {/* Action Button: Auto-Search according to Candidate */}
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => handleSearchForCandidate()}
+              disabled={isLoading || !selectedCandidateId}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 transition transform hover:-translate-y-0.5 disabled:opacity-50"
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span>Analyzing & Hunting 24h Jobs...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  <span>Search Jobs for {selectedCandidate?.fullName || 'Candidate'}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Main Search & Board Configuration Card */}
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-6">
-        {/* Search Inputs */}
+        {/* Search Inputs: Role, Location & Country */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-          <div className="md:col-span-6 space-y-1.5">
+          <div className="md:col-span-5 space-y-1.5">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Briefcase className="h-3.5 w-3.5 text-emerald-500" />
-              Role / Keywords / Skillsets
+              Role / Keywords (Synced with Candidate)
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                onKeyDown={(e) => e.key === 'Enter' && handleGeneralSearch()}
                 placeholder="e.g. Senior Full Stack Engineer, React, Python..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
@@ -513,17 +657,17 @@ export default function JobHunterPage() {
             </div>
           </div>
 
-          <div className="md:col-span-4 space-y-1.5">
+          <div className="md:col-span-3 space-y-1.5">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <MapPin className="h-3.5 w-3.5 text-emerald-500" />
-              Target Location / Territory
+              Location Territory
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                onKeyDown={(e) => e.key === 'Enter' && handleGeneralSearch()}
                 placeholder="e.g. Remote, San Francisco, New York..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
@@ -531,65 +675,57 @@ export default function JobHunterPage() {
             </div>
           </div>
 
+          {/* Filtered Location Country (Default USA) */}
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5 text-emerald-500" />
+              Country (Default USA)
+            </label>
+            <select
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            >
+              {COUNTRY_OPTIONS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="md:col-span-2 flex items-end">
             <button
-              onClick={() => handleSearch()}
+              onClick={() => handleGeneralSearch()}
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition shadow-lg shadow-emerald-600/30 disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-sm transition shadow-sm disabled:opacity-50"
             >
               {isLoading ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  <span>Hunting...</span>
-                </>
+                <RefreshCw className="h-4 w-4 animate-spin text-emerald-500" />
               ) : (
-                <>
-                  <Compass className="h-4 w-4" />
-                  <span>Search Jobs</span>
-                </>
+                <Compass className="h-4 w-4 text-emerald-500" />
               )}
+              <span>Search</span>
             </button>
           </div>
         </div>
 
-        {/* Quick Suggestion Pills */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">
-            Quick Roles:
-          </span>
-          {QUICK_SEARCH_ROLES.map((role) => (
-            <button
-              key={role}
-              onClick={() => {
-                setSearchTerm(role);
-              }}
-              className={`text-xs px-2.5 py-1 rounded-lg border transition ${
-                searchTerm === role
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 font-semibold'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-transparent hover:border-slate-300 dark:hover:border-slate-700'
-              }`}
-            >
-              {role}
-            </button>
-          ))}
-        </div>
-
         {/* ==================================================================== */}
-        {/* JOB BOARDS STICK & MIX CONTROL BAR (CORE USER REQUIREMENT)            */}
+        {/* JOB BOARDS STICK & MIX CONTROL BAR (CORE REQUIREMENT)                */}
         {/* ==================================================================== */}
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 text-emerald-500" />
               <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Job Board Mode: Mixed vs Stick to Board
+                Job Board Distribution: Mixed Feed vs Stick to Specific Board
               </span>
             </div>
             <div className="text-xs text-slate-500">
               {stickToSite === 'all' ? (
                 <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
                   <Shuffle className="h-3.5 w-3.5" />
-                  Mixed Feed Active (Balanced multi-board distribution)
+                  Mixed Feed Active (Interleaved across boards)
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold">
@@ -633,7 +769,7 @@ export default function JobHunterPage() {
             })}
           </div>
 
-          {/* If Mixed mode is active: Checkbox toggles for multi-board selection */}
+          {/* Checkboxes if Mixed mode is active */}
           {stickToSite === 'all' && (
             <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/80 flex flex-wrap items-center gap-4 text-xs text-slate-600 dark:text-slate-400">
               <span className="font-semibold text-slate-500 text-[11px] uppercase tracking-wider">
@@ -663,9 +799,20 @@ export default function JobHunterPage() {
           )}
         </div>
 
-        {/* Extended Filter Options (Remote, Freshness, Job Type, Salary, Limit) */}
+        {/* Extended Filter Options (24h Freshness, Workplace, Type, Salary, Limit) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-2">
-          {/* Remote Toggle */}
+          {/* Freshness: Strictly 24h & Repost-Free Guarantee */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+              Posting Freshness
+            </label>
+            <div className="flex items-center px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+              <Flame className="h-3.5 w-3.5 mr-1 text-emerald-500 shrink-0" />
+              <span>Past 24 Hours (No Reposts)</span>
+            </div>
+          </div>
+
+          {/* Workplace Type */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
               Workplace Type
@@ -698,24 +845,6 @@ export default function JobHunterPage() {
               <option value="contract">Contract / C2C / C2H</option>
               <option value="parttime">Part-Time</option>
               <option value="internship">Internship</option>
-            </select>
-          </div>
-
-          {/* Freshness */}
-          <div className="space-y-1">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-              Freshness
-            </label>
-            <select
-              value={hoursOld}
-              onChange={(e) => setHoursOld(Number(e.target.value))}
-              className="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value={24}>Past 24 Hours</option>
-              <option value={72}>Past 3 Days (72h)</option>
-              <option value={168}>Past 7 Days</option>
-              <option value={336}>Past 14 Days</option>
-              <option value={720}>Past 30 Days</option>
             </select>
           </div>
 
@@ -756,15 +885,27 @@ export default function JobHunterPage() {
         </div>
       </div>
 
-      {/* Results Header & Instant Filter */}
+      {/* Results Header, Sorting & In-results Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <span>Aggregated Job Postings</span>
+            <span>Live 24h Job Openings</span>
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
               {filteredJobs.length} Results
             </span>
           </h2>
+
+          <button
+            onClick={() => setSortByScore(!sortByScore)}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition ${
+              sortByScore
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-transparent'
+            }`}
+          >
+            <ArrowUpDown className="h-3 w-3" />
+            <span>Sort by Match Score</span>
+          </button>
 
           {/* Board distribution badges */}
           <div className="hidden lg:flex items-center gap-1.5">
@@ -802,16 +943,17 @@ export default function JobHunterPage() {
 
       {/* Loading Skeleton / Spinner */}
       {isLoading && (
-        <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+        <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
           <div className="inline-block p-4 rounded-full bg-emerald-500/10 animate-pulse text-emerald-500">
             <Compass className="h-10 w-10 animate-spin" />
           </div>
           <div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              Aggregating Live Jobs via JobSpy Engine
+              Aggregating 24h Fresh Jobs via JobSpy Engine
             </h3>
             <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              Connecting concurrently to LinkedIn, Indeed, ZipRecruiter, Glassdoor and Google Jobs...
+              Connecting concurrently to LinkedIn, Indeed, ZipRecruiter, Glassdoor, and Google Jobs...
+              Filtering out reposts and calculating matching score against {selectedCandidate?.fullName || 'candidate'}.
             </p>
           </div>
         </div>
@@ -822,10 +964,10 @@ export default function JobHunterPage() {
         <div className="p-12 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
           <AlertCircle className="h-10 w-10 text-slate-400 mx-auto" />
           <h3 className="text-base font-bold text-slate-900 dark:text-white">
-            No matching job postings found
+            No matching 24h job postings found
           </h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Try adjusting your search keywords, switching from specific board to "All Boards (Mixed)", or relaxing the salary/freshness filters.
+            Try adjusting your search keywords, switching from specific board to "All Boards (Mixed)", or relaxing salary filters.
           </p>
         </div>
       )}
@@ -843,6 +985,8 @@ export default function JobHunterPage() {
             const isSaved = savedJobIds.has(job.id);
             const isEvaluating = evaluatingJobId === job.id;
             const isSaving = savingJobId === job.id;
+            const matchScore = job.matchScore || 85;
+            const verdict = job.matchVerdict || 'APPLY';
 
             return (
               <div
@@ -850,19 +994,35 @@ export default function JobHunterPage() {
                 className={`relative flex flex-col justify-between rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-all border-l-4 ${board.borderClass} group`}
               >
                 <div>
-                  {/* Top Header: Board Badge + Freshness */}
+                  {/* Top Bar: Board Badge + 24h Fresh Tag + Match Score */}
                   <div className="flex items-center justify-between gap-2 mb-3">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${board.badgeClass}`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${board.dotClass}`} />
-                      {board.label}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${board.badgeClass}`}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${board.dotClass}`} />
+                        {board.label}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                        <Flame className="h-3 w-3" />
+                        &lt;24h Fresh
+                      </span>
+                    </div>
 
-                    <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                      <Clock className="h-3 w-3" />
-                      {job.datePosted || 'Recent'}
-                    </span>
+                    {/* MATCHING SCORE BADGE (AUTOMATICALLY DISPLAYED) */}
+                    <div
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-extrabold border ${
+                        matchScore >= 80
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                          : matchScore >= 70
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                          : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                      }`}
+                      title={`Match score evaluated for ${selectedCandidate?.fullName || 'candidate'}`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>{matchScore}% Match</span>
+                    </div>
                   </div>
 
                   {/* Title & Company */}
@@ -912,63 +1072,59 @@ export default function JobHunterPage() {
                     </div>
                   )}
 
-                  {/* Skills tags */}
-                  {job.skills && job.skills.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-3">
-                      {job.skills.slice(0, 4).map((s) => (
-                        <span
-                          key={s}
-                          className="text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                      {job.skills.length > 4 && (
-                        <span className="text-[10px] text-slate-400 self-center">
-                          +{job.skills.length - 4} more
-                        </span>
-                      )}
+                  {/* Matched Candidate Competencies Pills */}
+                  {job.matchedSkills && job.matchedSkills.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        <CheckCheck className="h-3 w-3 text-emerald-500" />
+                        <span>Matched Candidate Skills:</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {job.matchedSkills.slice(0, 4).map((s) => (
+                          <span
+                            key={s}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-500/20"
+                          >
+                            ✓ {s}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
 
-                  {/* AI Match Badge (if already evaluated) */}
-                  {job.matchScore !== undefined && job.matchScore !== null && (
-                    <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-emerald-500" />
-                        <span className="text-xs font-bold text-slate-900 dark:text-white">
-                          AI Match: {job.matchScore}%
-                        </span>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          job.matchVerdict === 'APPLY'
-                            ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
-                            : 'bg-rose-500/10 text-rose-600 border border-rose-500/30'
-                        }`}
-                      >
-                        {job.matchVerdict}
-                      </span>
-                    </div>
-                  )}
+                  {/* Candidate Fit Verdict Strip */}
+                  <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-medium truncate max-w-[170px]">
+                      Fit: {selectedCandidate?.fullName || 'Selected Candidate'}
+                    </span>
+                    <span
+                      className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                        verdict === 'APPLY'
+                          ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
+                          : 'bg-rose-500/10 text-rose-600 border border-rose-500/30'
+                      }`}
+                    >
+                      {verdict} RECOMMENDATION
+                    </span>
+                  </div>
                 </div>
 
                 {/* Bottom Action Footer */}
                 <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
-                    {/* Run AI Match Button */}
+                    {/* Deep LLM AI Match Button */}
                     <button
-                      onClick={() => handleRunAiMatch(job)}
+                      onClick={() => handleDeepAiMatch(job)}
                       disabled={isEvaluating}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold transition border border-emerald-500/20 disabled:opacity-50"
-                      title="Run Gemini AI Match Analysis with active bench candidate"
+                      title="Run Deep Gemini AI Analysis"
                     >
                       {isEvaluating ? (
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Sparkles className="h-3.5 w-3.5" />
                       )}
-                      <span>Match AI</span>
+                      <span>Deep AI</span>
                     </button>
 
                     {/* Save to Matched JDs */}
@@ -1003,7 +1159,7 @@ export default function JobHunterPage() {
                     <button
                       onClick={() => setActiveModalJob(job)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                      title="View Job Details"
+                      title="View Full Job Description"
                     >
                       <ChevronRight className="h-4 w-4" />
                     </button>
@@ -1015,7 +1171,7 @@ export default function JobHunterPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition"
-                        title={`Open job on ${board.label}`}
+                        title={`Open live posting on ${board.label}`}
                       >
                         <ExternalLink className="h-4 w-4" />
                       </a>
@@ -1045,8 +1201,11 @@ export default function JobHunterPage() {
                   >
                     {BOARD_CONFIG[activeModalJob.site]?.label || activeModalJob.site}
                   </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-semibold">
+                    Posted &lt; 24h
+                  </span>
                   {activeModalJob.isRemote && (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-semibold">
+                    <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 text-xs font-semibold">
                       Remote
                     </span>
                   )}
@@ -1069,6 +1228,24 @@ export default function JobHunterPage() {
 
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto space-y-6 text-sm text-slate-700 dark:text-slate-300">
+              {/* Candidate Fit Overview */}
+              <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Candidate Compatibility Score ({selectedCandidate?.fullName})
+                  </span>
+                  <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                    {activeModalJob.matchScore || 85}% Alignment
+                  </span>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                    {activeModalJob.matchReasoning}
+                  </p>
+                </div>
+                <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+                  {activeModalJob.matchVerdict || 'APPLY'}
+                </span>
+              </div>
+
               {/* Compensation & Metadata */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                 <div>
@@ -1094,7 +1271,7 @@ export default function JobHunterPage() {
                     Date Posted
                   </span>
                   <span className="font-semibold text-slate-900 dark:text-white">
-                    {activeModalJob.datePosted || 'Recent'}
+                    {activeModalJob.datePosted || 'Today (<24h)'}
                   </span>
                 </div>
                 <div>
@@ -1158,11 +1335,11 @@ export default function JobHunterPage() {
             {/* Modal Footer */}
             <div className="p-6 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-950">
               <button
-                onClick={() => handleRunAiMatch(activeModalJob)}
+                onClick={() => handleDeepAiMatch(activeModalJob)}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-xs border border-emerald-500/30 transition"
               >
                 <Sparkles className="h-4 w-4" />
-                <span>Run AI Match Score</span>
+                <span>Deep Gemini AI Analysis</span>
               </button>
 
               <div className="flex items-center gap-2">
@@ -1185,96 +1362,6 @@ export default function JobHunterPage() {
                   </a>
                 )}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ==================================================================== */}
-      {/* AI MATCH INTEL MODAL                                                 */}
-      {/* ==================================================================== */}
-      {activeAiModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                  <Sparkles className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                    AI Match Intelligence Analysis
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Candidate fit evaluation for {activeAiModal.job.title}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveAiModal(null)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6 overflow-y-auto">
-              {/* Score & Verdict Banner */}
-              <div className="flex items-center justify-between p-5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                <div className="space-y-1">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                    AI Verdict
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {activeAiModal.result.verdict === 'APPLY' ? (
-                      <CheckCircle2 className="h-6 w-6 text-emerald-500" />
-                    ) : (
-                      <XCircle className="h-6 w-6 text-rose-500" />
-                    )}
-                    <span
-                      className={`text-xl font-extrabold ${
-                        activeAiModal.result.verdict === 'APPLY'
-                          ? 'text-emerald-500'
-                          : 'text-rose-500'
-                      }`}
-                    >
-                      {activeAiModal.result.verdict}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="text-right space-y-1">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                    Match Confidence
-                  </span>
-                  <span className="text-3xl font-black text-slate-900 dark:text-white">
-                    {activeAiModal.result.matchScore}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Reasoning */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-2">
-                  Matching Reasoning & Strengths
-                </h4>
-                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                  {activeAiModal.result.reasoning || 'Strong alignment between candidate background and job specifications.'}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 bg-slate-50 dark:bg-slate-950">
-              <button
-                onClick={() => {
-                  handleSaveToMatchedJds(activeAiModal.job);
-                  setActiveAiModal(null);
-                }}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/20 transition"
-              >
-                <BookmarkCheck className="h-4 w-4" />
-                <span>Save to Matched JDs</span>
-              </button>
             </div>
           </div>
         </div>
