@@ -143,7 +143,7 @@ export class GeminiService {
   static async evaluate(prompt: string): Promise<GeminiEvaluationResponse> {
     const startTime = Date.now();
     const client = this.getClient();
-    const modelName = 'gemini-3.8-flash';
+    const modelName = 'gemini-3.5-flash-lite';
 
     let finalPrompt = prompt;
     if (!prompt.includes('"jobTitle"') && !prompt.includes('"candidateFitCheck"') && !prompt.includes('CRITICAL JSON INSTRUCTION')) {
@@ -261,8 +261,8 @@ You MUST respond strictly with valid, unescaped JSON matching this schema exactl
     const isEligible = typeof parsed.isEligible === 'boolean'
       ? parsed.isEligible
       : typeof parsed.is_eligible === 'boolean'
-      ? parsed.is_eligible
-      : !eligibilityCheck.toLowerCase().includes('no-go') && isApply;
+        ? parsed.is_eligible
+        : !eligibilityCheck.toLowerCase().includes('no-go') && isApply;
 
     let alignedSkills: string[] = [];
     let gaps: string[] = [];
@@ -284,8 +284,8 @@ You MUST respond strictly with valid, unescaped JSON matching this schema exactl
     const naturalHighlights = Array.isArray(parsed.naturalFitHighlights)
       ? parsed.naturalFitHighlights
       : Array.isArray(parsed.natural_fit_highlights)
-      ? parsed.natural_fit_highlights
-      : alignedSkills;
+        ? parsed.natural_fit_highlights
+        : alignedSkills;
 
     const justification = parsed.verdictJustification || parsed.verdict_justification || parsed.reasoning || (isApply ? 'Strong natural fit' : 'Candidate does not meet core requirements');
 
@@ -304,8 +304,8 @@ You MUST respond strictly with valid, unescaped JSON matching this schema exactl
     const applicationQuestions = Array.isArray(parsed.applicationQuestions)
       ? parsed.applicationQuestions
       : Array.isArray(parsed.application_questions)
-      ? parsed.application_questions
-      : [];
+        ? parsed.application_questions
+        : [];
 
     const otherNotes = parsed.otherNotes || parsed.other_notes || '';
 
@@ -679,7 +679,7 @@ Respond strictly with a valid JSON object matching this schema:
   private static buildResumeMarkdownReport(res: ResumeAnalysisResult, candidateName?: string): string {
     const lines: string[] = [];
     lines.push(`# Recruiter Intelligence Report: ${candidateName || 'Candidate Profile'}\n`);
-    
+
     // 1. Snapshot
     lines.push(`## 1. CANDIDATE SNAPSHOT`);
     lines.push(`- **Total Experience:** ${res.candidateSnapshot?.totalYearsExperience || 'N/A'}`);
