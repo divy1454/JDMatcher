@@ -15,6 +15,7 @@ import { promptSettingsRoutes } from './routes/promptSettings.routes.js';
 import { telemetryRoutes } from './routes/telemetry.routes.js';
 import { invoicesRoutes } from './routes/invoices.routes.js';
 import { autofillRoutes } from './routes/autofill.routes.js';
+import { jobsRoutes } from './routes/jobs.routes.js';
 
 export async function buildServer() {
   const isProduction = env.NODE_ENV === 'production';
@@ -140,6 +141,9 @@ export async function buildServer() {
 
   await app.register(autofillRoutes, { prefix: '/api/v1/extension' });
   await app.register(autofillRoutes, { prefix: '/v1/extension' });
+
+  await app.register(jobsRoutes, { prefix: '/api/jobs' });
+  await app.register(jobsRoutes, { prefix: '/jobs' });
 
   return app;
 }

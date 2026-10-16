@@ -12,11 +12,13 @@ import {
   LogOut,
   Sparkles,
   User,
+  Compass,
 } from 'lucide-react';
 
 const recruiterNavItems = [
   { name: 'Bench Candidates', href: '/recruiter-portal/candidates', icon: Users, badge: 'Talent' },
   { name: 'Resume Analyser', href: '/recruiter-portal/analyse', icon: Sparkles, badge: 'AI Intel' },
+  { name: 'Job Board Hunter', href: '/recruiter-portal/job-hunter', icon: Compass, badge: 'JobSpy' },
   { name: 'Matched Job Descriptions', href: '/recruiter-portal/matched-jds', icon: Briefcase, badge: 'Matches' },
   { name: 'My Profile & Machine', href: '/recruiter-portal/profile', icon: User, badge: 'Profile' },
 ];

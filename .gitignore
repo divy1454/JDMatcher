@@ -34,3 +34,6 @@ yarn-error.log*
 
 # Render
 .render/
+
+# Cloned External Repositories
+JobSpy/
