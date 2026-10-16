@@ -5,15 +5,16 @@ import { env } from '../env.js';
 
 const { Pool } = pg;
 
-// Enable SSL for production (required by Supabase and most cloud PostgreSQL providers)
 const isProduction = env.NODE_ENV === 'production';
+// Enable SSL for Supabase and production PostgreSQL providers
+const requiresSsl = isProduction || env.DATABASE_URL.includes('supabase.com') || env.DATABASE_URL.includes('neon.tech');
 
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
   max: isProduction ? 10 : 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
-  ssl: isProduction ? { rejectUnauthorized: false } : undefined,
+  ssl: requiresSsl ? { rejectUnauthorized: false } : undefined,
 });
 
 export const db = drizzle(pool, { schema });

@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { candidates, users } from '../db/schema.js';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, or, isNull } from 'drizzle-orm';
 import { authGuard, requireRole } from '../middleware/authGuard.js';
 import { GeminiService } from '../services/geminiService.js';
 
@@ -73,9 +73,9 @@ export const candidatesRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
         eq(candidates.isActive, true),
       ];
 
-      // Recruiter isolation: Recruiters can ONLY see candidates they created or assigned to them
+      // Recruiter view: Recruiters can see candidates they created, assigned to them, or agency bench candidates
       if (user.role === 'recruiter') {
-        conditions.push(eq(candidates.createdByRecruiterId, user.id));
+        conditions.push(or(eq(candidates.createdByRecruiterId, user.id), isNull(candidates.createdByRecruiterId))!);
       }
 
       const baseQuery = db
