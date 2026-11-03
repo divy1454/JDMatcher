@@ -14,6 +14,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16).default('super-secret-jwt-key-jdmatcher-enterprise-2026-production'),
   GEMINI_API_KEY: z.string().optional().default(''),
   GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),
+  // Optional: a different (e.g. larger) model just for answering application questions
+  GEMINI_AUTOFILL_MODEL: z.string().optional().default(''),
   SUPER_ADMIN_EMAIL: z.string().email().default('admin@jdmatcher.internal'),
   SUPER_ADMIN_PASSWORD: z.string().default('ChangeMeInProd123!'),
   SUPER_ADMIN_NAME: z.string().default('Platform Super Admin'),

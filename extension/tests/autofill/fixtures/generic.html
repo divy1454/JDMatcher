@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>DevOps Engineer - Example Co Careers</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+    label, legend, .label { display: block; margin-top: 14px; }
+    input[type=text], input[type=email], input[type=tel], select, textarea { width: 100%; padding: 6px; }
+    fieldset { border: 0; padding: 0; margin: 0; }
+  </style>
+</head>
+<body>
+  <h1>DevOps Engineer</h1>
+  <div class="job-description">
+    <h2>About the role</h2>
+    <p>Example Co is hiring a DevOps Engineer to run our Kubernetes platform on AWS. You will own Terraform
+      modules, CI/CD pipelines, observability and on-call for 40+ microservices. Required: 3+ years of Kubernetes,
+      Terraform, Linux and scripting. Nice to have: Ansible, Helm, ArgoCD. This is a hybrid role in Austin, TX.</p>
+  </div>
+
+  <form id="apply" onsubmit="event.preventDefault(); window.__submitted = true;">
+    <label for="first_name">First Name *</label><input id="first_name" name="first_name" required>
+    <label for="last_name">Last Name *</label><input id="last_name" name="last_name" required>
+    <label for="email">Email *</label><input id="email" name="email" type="email" required>
+    <label for="phone">Phone</label><input id="phone" name="phone" type="tel">
+    <label for="city">City</label><input id="city" name="city">
+    <label for="state">State</label>
+    <select id="state" name="state"><option value="">Select...</option><option>California</option><option>Texas</option><option>New York</option></select>
+    <label for="country">Country</label>
+    <select id="country" name="country"><option value="">--</option><option>Canada</option><option>United States of America</option><option>India</option></select>
+    <label for="linkedin">LinkedIn Profile</label><input id="linkedin" name="linkedin_url">
+
+    <fieldset id="q_sponsor">
+      <legend>Will you now or in the future require visa sponsorship? *</legend>
+      <input type="radio" id="sp_yes" name="require_sponsorship" value="yes" required><label for="sp_yes">Yes</label>
+      <input type="radio" id="sp_no" name="require_sponsorship" value="no"><label for="sp_no">No</label>
+    </fieldset>
+
+    <fieldset id="q_auth">
+      <legend>Are you legally authorized to work in the United States? *</legend>
+      <input type="radio" id="au_yes" name="answers[2][boolean_value]" value="1" required><label for="au_yes">Yes</label>
+      <input type="radio" id="au_no" name="answers[2][boolean_value]" value="0"><label for="au_no">No</label>
+    </fieldset>
+
+    <fieldset id="q_nosponsor">
+      <legend>Are you able to work in the US without sponsorship?</legend>
+      <!-- The site pre-selects "Yes"; the engine must replace a page default with the real answer -->
+      <label><input type="radio" name="q_nosponsor" value="1" checked> Yes</label>
+      <label><input type="radio" name="q_nosponsor" value="0"> No</label>
+    </fieldset>
+
+    <label for="relocate">Are you willing to relocate?</label>
+    <select id="relocate" name="relocate"><option value="">--</option><option value="1">Yes</option><option value="0">No</option></select>
+
+    <div class="field">
+      <div class="label">How many years of experience do you have with Kubernetes? *</div>
+      <input name="k8s_years" type="text" required>
+    </div>
+
+    <label for="why">Why are you interested in this role?</label><textarea id="why" name="why" rows="4"></textarea>
+
+    <label for="rate">Desired hourly rate *</label>
+    <select id="rate" name="rate" required><option value="">Select</option><option>$40-$50</option><option>$50-$60</option><option>$60+</option></select>
+
+    <label for="gender">Gender</label>
+    <select id="gender" name="gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select>
+    <label for="veteran">Veteran status</label>
+    <select id="veteran" name="veteran">
+      <option value="">Select</option>
+      <option>I am not a protected veteran</option>
+      <option>I identify as one or more of the classifications of protected veteran</option>
+      <option>I don't wish to answer</option>
+    </select>
+    <fieldset id="q_dis">
+      <legend>Do you have a disability?</legend>
+      <input type="radio" id="d1" name="disability" value="y"><label for="d1">Yes, I have a disability (or previously had a disability)</label>
+      <input type="radio" id="d2" name="disability" value="n"><label for="d2">No, I do not have a disability and have not had one in the past</label>
+      <input type="radio" id="d3" name="disability" value="x"><label for="d3">I do not want to answer</label>
+    </fieldset>
+
+    <label><input type="checkbox" id="consent" name="privacy_consent" required> I agree to the privacy policy and the processing of my personal data</label>
+    <label><input type="checkbox" id="marketing" name="marketing"> Send me job alerts about similar roles</label>
+
+    <input type="text" class="mystery">
+    <input type="text" name="website_hp" id="honeypot" style="position:absolute;left:-9999px" tabindex="-1" autocomplete="off">
+    <p><button type="submit" id="submit">Submit Application</button></p>
+  </form>
+  <script>
+    document.getElementById('submit').addEventListener('click', () => { window.__submitClicked = (window.__submitClicked || 0) + 1; });
+  </script>
+</body>
+</html>

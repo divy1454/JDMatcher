@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Apply - DevOps Engineer - Globex Careers</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+    .wd-field { margin: 12px 0; }
+    .wd-field label { display: block; margin-bottom: 4px; }
+    button[aria-haspopup="listbox"] { min-width: 260px; text-align: left; padding: 6px; }
+    [data-automation-id="activeListContainer"] { position: absolute; background: #fff; border: 1px solid #888; z-index: 10; min-width: 260px; }
+    [data-automation-id="activeListContainer"] ul { list-style: none; margin: 0; padding: 0; }
+    li[role="option"] { padding: 5px 8px; cursor: pointer; }
+    .hidden-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+    [data-automation-id="errorMessage"] { color: #b00020; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <!-- Mimics a Workday application: one page app, "Select One" dropdown buttons, the same URL for every step -->
+  <div data-automation-id="applicationPage">
+    <h2 id="step-title"></h2>
+    <div id="step-body"></div>
+    <div id="errors"></div>
+    <div data-automation-id="pageFooter">
+      <button type="button" id="back">Back</button>
+      <button type="button" data-automation-id="bottom-navigation-next-button" id="next">Save and Continue</button>
+    </div>
+  </div>
+
+  <script>
+    const answers = (window.__wdAnswers = {});
+    window.__wdStep = 0;
+    const steps = [
+      {
+        title: 'My Information',
+        fields: [
+          { id: 'firstName', label: 'First Name', type: 'text', required: true },
+          { id: 'lastName', label: 'Last Name', type: 'text', required: true },
+          { id: 'email', label: 'Email Address', type: 'text', required: true },
+          { id: 'phoneType', label: 'Phone Device Type', type: 'dropdown', required: true, options: ['Home', 'Mobile', 'Work'] },
+          { id: 'phone', label: 'Phone Number', type: 'text', required: true },
+          { id: 'country', label: 'Country', type: 'dropdown', required: true, options: ['Canada', 'India', 'United States of America', 'United States Minor Outlying Islands'] },
+          { id: 'address1', label: 'Address Line 1', type: 'text' },
+          { id: 'city', label: 'City', type: 'text' },
+          { id: 'state', label: 'State', type: 'dropdown', options: ['Arizona', 'California', 'Texas', 'Washington'] },
+          { id: 'postal', label: 'Postal Code', type: 'text' },
+        ],
+      },
+      {
+        title: 'My Experience',
+        fields: [
+          { id: 'resume', label: 'Resume/CV', type: 'file', required: true },
+          { id: 'linkedin', label: 'LinkedIn', type: 'text' },
+        ],
+      },
+      {
+        title: 'Application Questions',
+        fields: [
+          { id: 'q_auth', label: 'Are you legally authorized to work in the country in which the job is located?', type: 'dropdown', required: true, options: ['Yes', 'No'] },
+          { id: 'q_sponsor', label: 'Will you now, or in the future, require sponsorship for employment visa status (e.g. H-1B visa status)?', type: 'dropdown', required: true, options: ['Yes', 'No'] },
+          { id: 'q_relocate', label: 'Are you willing to relocate?', type: 'dropdown', options: ['Yes', 'No'] },
+          { id: 'q_terraform', label: 'How many years of experience do you have with Terraform?', type: 'dropdown', required: true, options: ['0-1 years', '2-4 years', '5+ years'] },
+          { id: 'q_prev', label: 'Have you previously worked for Globex?', type: 'dropdown', required: true, options: ['Yes', 'No'] },
+        ],
+      },
+      {
+        title: 'Voluntary Disclosures',
+        fields: [
+          { id: 'gender', label: 'Gender', type: 'dropdown', options: ['Male', 'Female', 'I do not wish to answer'] },
+          { id: 'veteran', label: 'Veteran Status', type: 'dropdown', options: ['I am not a veteran', 'I identify as one or more of the classifications of protected veterans', 'I do not wish to self-identify'] },
+          { id: 'ethnicity', label: 'Ethnicity', type: 'dropdown', options: ['Asian (Not Hispanic or Latino)', 'White (Not Hispanic or Latino)', 'I do not wish to answer'] },
+          { id: 'terms', label: 'I have read and consent to the terms and conditions', type: 'checkbox', required: true },
+        ],
+      },
+      { title: 'Review', fields: [] },
+    ];
+    const fieldById = {};
+    steps.forEach((s) => s.fields.forEach((f) => (fieldById[f.id] = f)));
+
+    function fieldHtml(f) {
+      const req = f.required ? '<abbr title="required">*</abbr>' : '';
+      const aria = f.required ? 'aria-required="true"' : '';
+      if (f.type === 'text') {
+        return `<div class="wd-field" data-automation-id="formField-${f.id}"><label for="${f.id}">${f.label}${req}</label><input id="${f.id}" type="text" ${aria} data-automation-id="${f.id}"></div>`;
+      }
+      if (f.type === 'dropdown') {
+        return `<div class="wd-field" data-automation-id="formField-${f.id}"><label for="${f.id}">${f.label}${req}</label><button type="button" id="${f.id}" aria-haspopup="listbox" aria-label="${f.label} Select One ${f.required ? 'Required' : ''}" data-automation-id="${f.id}">Select One</button></div>`;
+      }
+      if (f.type === 'file') {
+        return `<div class="wd-field" data-automation-id="formField-resume"><label>${f.label}${req}</label><div data-automation-id="file-upload-drop-zone"><button type="button" onclick="document.getElementById('${f.id}').click()">Select files</button><input id="${f.id}" type="file" class="hidden-file" data-automation-id="file-upload-input-ref"></div></div>`;
+      }
+      if (f.type === 'checkbox') {
+        return `<div class="wd-field" data-automation-id="formField-${f.id}"><input type="checkbox" id="${f.id}" ${aria}><label for="${f.id}" style="display:inline">${f.label}${req}</label></div>`;
+      }
+      return '';
+    }
+
+    function render() {
+      const s = steps[window.__wdStep];
+      document.getElementById('step-title').textContent = s.title;
+      if (s.title === 'Review') {
+        document.getElementById('step-body').innerHTML = '<p>Review your application before submitting.</p>';
+        document.getElementById('next').textContent = 'Submit';
+      } else {
+        document.getElementById('step-body').innerHTML = s.fields.map(fieldHtml).join('');
+      }
+    }
+
+    // Dropdown behaviour (opens a listbox in a portal after a short delay, like Workday)
+    let openFor = null;
+    let listEl = null;
+    let openToken = 0;
+    function closeList() {
+      openToken++;
+      if (listEl) listEl.remove();
+      listEl = null;
+      openFor = null;
+    }
+    function openList(btn) {
+      closeList();
+      const f = fieldById[btn.id];
+      openFor = btn;
+      const token = openToken;
+      const box = document.createElement('div');
+      box.setAttribute('data-automation-id', 'activeListContainer');
+      const r = btn.getBoundingClientRect();
+      box.style.left = r.left + window.scrollX + 'px';
+      box.style.top = r.bottom + window.scrollY + 'px';
+      box.innerHTML = `<ul role="listbox">${f.options.map((o) => `<li role="option"><div data-automation-id="promptOption">${o}</div></li>`).join('')}</ul>`;
+      listEl = box;
+      setTimeout(() => {
+        if (token === openToken && openFor === btn) document.body.appendChild(box);
+      }, 120);
+    }
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[aria-haspopup="listbox"]');
+      if (btn) {
+        if (openFor === btn) closeList();
+        else openList(btn);
+        return;
+      }
+      const opt = e.target.closest('[role="option"]');
+      if (opt && openFor) {
+        const value = opt.textContent.trim();
+        openFor.textContent = value;
+        openFor.dataset.value = value;
+        closeList();
+        return;
+      }
+      if (!e.target.closest('[data-automation-id="activeListContainer"]')) closeList();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeList();
+    });
+
+    function valueOf(f) {
+      const el = document.getElementById(f.id);
+      if (!el) return '';
+      if (f.type === 'text') return el.value.trim();
+      if (f.type === 'dropdown') return el.dataset.value || '';
+      if (f.type === 'file') return el.files && el.files.length ? el.files[0].name : '';
+      if (f.type === 'checkbox') return el.checked ? 'checked' : '';
+      return '';
+    }
+
+    document.getElementById('next').addEventListener('click', () => {
+      const s = steps[window.__wdStep];
+      if (s.title === 'Review') {
+        window.__submitted = true;
+        return;
+      }
+      const missing = s.fields.filter((f) => f.required && !valueOf(f)).map((f) => f.label);
+      if (missing.length) {
+        document.getElementById('errors').innerHTML = `<div role="alert" data-automation-id="errorMessage">Errors found: ${missing.join(', ')}</div>`;
+        return;
+      }
+      s.fields.forEach((f) => (answers[f.label] = valueOf(f)));
+      document.getElementById('errors').innerHTML = '';
+      setTimeout(() => {
+        window.__wdStep++;
+        render();
+      }, 300);
+    });
+    render();
+  </script>
+</body>
+</html>

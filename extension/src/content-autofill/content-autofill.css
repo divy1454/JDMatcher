@@ -21,6 +21,14 @@
   transition: outline 0.3s ease, box-shadow 0.3s ease !important;
 }
 
+/* Answers the recruiter should check (guessed, missing, or needing the candidate) */
+.jdm-needs-review {
+  outline: 2px dashed #ef4444 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16) !important;
+  border-radius: 4px;
+}
+
 /* Toast Pill Floating in Bottom-Right */
 .jdm-autofill-toast-container {
   position: fixed !important;

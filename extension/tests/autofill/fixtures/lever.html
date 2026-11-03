@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Acme - Platform Engineer</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+    .application-question { margin: 16px 0; }
+    .application-label { margin-bottom: 6px; }
+    .application-field input[type=text], .application-field textarea { width: 100%; padding: 6px; }
+    ul.application-field { list-style: none; padding: 0; margin: 0; }
+    /* Lever-style custom radios/checkboxes: the real input is invisible, the label is what you see */
+    .custom input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .custom span { display: inline-block; padding: 4px 10px; border: 1px solid #999; border-radius: 12px; margin: 2px 0; }
+    .custom input:checked + span { background: #2563eb; color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="posting-page">
+    <div class="section-wrapper">
+      <h2>Platform Engineer</h2>
+      <p>Acme's platform team builds the paved road for 300 engineers: Kubernetes, Terraform, Ansible and a homegrown
+        deploy tool. You will own cluster upgrades, write Terraform modules, and automate everything you touch.
+        We are looking for 3+ years of hands-on Kubernetes and infrastructure-as-code experience.</p>
+    </div>
+  </div>
+
+  <form class="application-form" onsubmit="event.preventDefault(); window.__submitted = true;">
+    <div class="application-question"><div class="application-label">Full name<span class="required">✱</span></div>
+      <div class="application-field"><input type="text" name="name" required></div></div>
+    <div class="application-question"><div class="application-label">Email<span class="required">✱</span></div>
+      <div class="application-field"><input type="text" name="email" required></div></div>
+    <div class="application-question"><div class="application-label">Phone</div>
+      <div class="application-field"><input type="text" name="phone"></div></div>
+    <div class="application-question"><div class="application-label">Current company</div>
+      <div class="application-field"><input type="text" name="org"></div></div>
+    <div class="application-question"><div class="application-label">LinkedIn URL</div>
+      <div class="application-field"><input type="text" name="urls[LinkedIn]"></div></div>
+
+    <div class="application-question">
+      <div class="application-label">Are you authorized to work in the US?<span class="required">✱</span></div>
+      <ul class="application-field">
+        <li><label class="custom"><input type="radio" name="cards[a1][field0]" value="Yes"><span>Yes</span></label></li>
+        <li><label class="custom"><input type="radio" name="cards[a1][field0]" value="No"><span>No</span></label></li>
+      </ul>
+    </div>
+
+    <div class="application-question">
+      <div class="application-label">Which of the following tools have you used professionally?</div>
+      <ul class="application-field">
+        <li><label class="custom"><input type="checkbox" name="cards[a1][field1]" value="Kubernetes"><span>Kubernetes</span></label></li>
+        <li><label class="custom"><input type="checkbox" name="cards[a1][field1]" value="Terraform"><span>Terraform</span></label></li>
+        <li><label class="custom"><input type="checkbox" name="cards[a1][field1]" value="Ansible"><span>Ansible</span></label></li>
+        <li><label class="custom"><input type="checkbox" name="cards[a1][field1]" value="Salesforce"><span>Salesforce</span></label></li>
+        <li><label class="custom"><input type="checkbox" name="cards[a1][field1]" value="SAP"><span>SAP</span></label></li>
+      </ul>
+    </div>
+
+    <div class="application-question"><div class="application-label">Additional information</div>
+      <div class="application-field"><textarea name="comments" rows="3"></textarea></div></div>
+
+    <label><input type="checkbox" id="updates" name="consent[marketing]"> Yes, I'd like to receive updates about future openings at Acme</label>
+
+    <p><button type="submit" id="submit">Submit application</button></p>
+  </form>
+  <script>
+    document.getElementById('submit').addEventListener('click', () => { window.__submitClicked = (window.__submitClicked || 0) + 1; });
+  </script>
+</body>
+</html>

@@ -170,10 +170,11 @@ const INITIAL_FORM_DATA: SpeedyApplyFormData = {
   willingToRelocate: true,
   desiredSalary: '',
 
+  // Self-identification is the candidate's choice, so new profiles start at "decline"
   eeoGender: 'Decline to self-identify',
   eeoRace: 'Decline to self-identify',
-  eeoVeteran: 'I am not a protected veteran',
-  eeoDisability: 'No, I do not have a disability',
+  eeoVeteran: 'Decline to self-identify',
+  eeoDisability: 'Decline to self-identify',
 
   resumeFileBase64: '',
   resumeFileName: '',
@@ -293,7 +294,11 @@ export default function RecruiterCandidatesPage() {
         otherUrl: structured.social?.otherUrl || '',
 
         authorizedToWorkInUS: structured.screening?.authorizedToWorkInUS !== undefined ? structured.screening.authorizedToWorkInUS : true,
-        requireSponsorship: structured.screening?.requireSponsorship !== undefined ? structured.screening.requireSponsorship : false,
+        // When not saved yet, derive it from the visa so an H-1B profile never defaults to "no sponsorship"
+        requireSponsorship:
+          structured.screening?.requireSponsorship !== undefined
+            ? structured.screening.requireSponsorship
+            : !['US Citizen', 'Green Card'].includes(full.visaStatus || structured.personal?.citizenshipStatus || 'US Citizen'),
         currentSponsorshipType: structured.screening?.currentSponsorshipType || full.visaStatus || 'US Citizen',
         securityClearanceLevel: structured.screening?.securityClearanceLevel || full.securityClearance || 'None',
         noticePeriodWeeks: structured.screening?.noticePeriodWeeks || '2',
@@ -302,8 +307,8 @@ export default function RecruiterCandidatesPage() {
 
         eeoGender: structured.equalOpportunity?.eeoGender || 'Decline to self-identify',
         eeoRace: structured.equalOpportunity?.eeoRace || 'Decline to self-identify',
-        eeoVeteran: structured.equalOpportunity?.eeoVeteran || 'I am not a protected veteran',
-        eeoDisability: structured.equalOpportunity?.eeoDisability || 'No, I do not have a disability',
+        eeoVeteran: structured.equalOpportunity?.eeoVeteran || 'Decline to self-identify',
+        eeoDisability: structured.equalOpportunity?.eeoDisability || 'Decline to self-identify',
 
         resumeFileBase64: full.resumeFileBase64 || '',
         resumeFileName: full.resumeFileName || '',

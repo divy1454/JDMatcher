@@ -1,9 +1,32 @@
-import { CandidateAutoFillProfile, AutoFillRunStats, AutoFillExtractedField } from '../content/types';
-import { scanApplicationForm } from './form-detector';
-import { resolveTier1Field } from './tier1-resolver';
+/**
+ * JDMatcher auto-fill engine (content script, runs in every frame).
+ *
+ * Page load on a known ATS: fills the current page (zero-click), as before.
+ * "Fill Form" in the widget: hands-free run. Fills the page, clicks Next/Continue, fills the next page,
+ * and so on until the Review/Submit page. It never submits. It pauses on a page when an answer needs
+ * the recruiter (missing data, a guess, a profile conflict) and shows what to check.
+ */
+import {
+  CandidateAutoFillProfile,
+  AutoFillRunStats,
+  AutoFillExtractedField,
+  AutoFillReviewItem,
+} from '../content/types';
+import { scanApplicationForm, isFieldFilled, readFieldValue } from './form-detector';
+import { resolveTier1Field, Tier1Context } from './tier1-resolver';
 import { resolveSavedResponse } from './saved-response-matcher';
-import { resolveTier2Fields } from './tier2-resolver';
-import { injectFieldValue } from './dom-injector';
+import { requestAiAnswers, resetTier2CircuitBreaker } from './tier2-resolver';
+import { injectField, readLazyOptions, answerFitsOptions } from './dom-injector';
+import { getJobContext, resetJobContextCache } from './job-context';
+import {
+  computeStepKey,
+  findNextButton,
+  clickNextAndWait,
+  isFinalStep,
+  isAutoAdvanceAllowedHere,
+  isSafeNextButton,
+  visibleErrors,
+} from './step-navigator';
 import {
   markElementAsAutoFilled,
   showAutoFillStartingToast,
@@ -11,16 +34,32 @@ import {
   showAutoFillInfoToast,
   dismissAutoFillToast,
 } from './visual-feedback';
+import { markElementNeedsReview, clearReviewMark, showReviewPanel, dismissReviewPanel, triggerFrameContinue } from './review-panel';
 import { startFormObserver, isElementAlreadyProcessed, markElementProcessed } from './observer';
+import { trackForLearning, snapshotTrackedAnswers, installAnswerRecorder } from './answer-recorder';
+import { sleep, waitFor, waitForDomQuiet } from './dom-utils';
+import { normalizeText } from './text-utils';
 import './content-autofill.css';
 
 console.log('[JDMatcher Enterprise] Auto-Fill Engine initialized in frame:', window.self === window.top ? 'top' : 'iframe');
 
 let currentProfile: CandidateAutoFillProfile | null = null;
 let isAutoFillEnabled = true;
+const settings = { autoAdvance: true, pauseOnFlags: true };
 let isExecutionInProgress = false;
-let lastProcessedUrl = '';
-let hasResumeBeenInjectedOnPage = false;
+let sessionRunning = false;
+/** The page the recruiter already reviewed (flags there no longer pause the run). */
+let acknowledgedStepKey = '';
+/** The run paused on a page of THIS document (so conditional questions appearing don't count as moving on). */
+let pausedInThisDocument = false;
+/** The recruiter clicked Next themselves while the run was paused. */
+let userAdvancedWhilePaused = false;
+/** Number of answers flagged during the current fill (for deciding whether to show the panel). */
+let newFlagsThisRun = 0;
+
+const MAX_STEPS = 15;
+const SESSION_KEY = 'jdm_auto_session_v1';
+const SESSION_MAX_AGE_MS = 45 * 60 * 1000;
 
 const RECOGNIZED_ATS_DOMAINS = [
   'linkedin.com',
@@ -37,288 +76,751 @@ const RECOGNIZED_ATS_DOMAINS = [
   'indeed.com',
 ];
 
-/**
- * Validates if current page is on an established ATS or job board domain/path.
- */
+/** Validates if current page is on an established ATS or job board domain/path. */
 export function isRecognizedJobBoardOrAts(): boolean {
   try {
     const host = window.location.hostname.toLowerCase();
     const path = window.location.pathname.toLowerCase();
     const href = window.location.href.toLowerCase();
-
-    const matchesDomain = RECOGNIZED_ATS_DOMAINS.some(d => host === d || host.endsWith('.' + d));
+    const matchesDomain = RECOGNIZED_ATS_DOMAINS.some((d) => host === d || host.endsWith('.' + d));
     const matchesPath =
-      path.includes('/apply') ||
-      path.includes('/careers') ||
-      path.includes('/jobs') ||
-      href.includes('gh_jid=') ||
-      href.includes('lever.co/');
-
+      path.includes('/apply') || path.includes('/careers') || path.includes('/jobs') || href.includes('gh_jid=') || href.includes('lever.co/');
     return matchesDomain || matchesPath;
   } catch {
     return false;
   }
 }
 
-/**
- * Loads current candidate profile and settings from chrome.storage.local.
- */
+// ---------------------------------------------------------------------------
+// Stored state
+// ---------------------------------------------------------------------------
+
 async function loadStoredState(): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['autofillEnabled', 'cachedCandidateProfile', 'selectedCandidateId'], (res) => {
-      if (res.autofillEnabled !== undefined) {
-        isAutoFillEnabled = Boolean(res.autofillEnabled);
-      }
-      if (res.cachedCandidateProfile) {
-        currentProfile = res.cachedCandidateProfile;
-      }
+    try {
+      chrome.storage.local.get(
+        ['autofillEnabled', 'cachedCandidateProfile', 'autofillAutoAdvance', 'autofillPauseOnFlags'],
+        (res) => {
+          if (res?.autofillEnabled !== undefined) isAutoFillEnabled = Boolean(res.autofillEnabled);
+          if (res?.cachedCandidateProfile) currentProfile = res.cachedCandidateProfile;
+          if (res?.autofillAutoAdvance !== undefined) settings.autoAdvance = Boolean(res.autofillAutoAdvance);
+          if (res?.autofillPauseOnFlags !== undefined) settings.pauseOnFlags = Boolean(res.autofillPauseOnFlags);
+          resolve();
+        }
+      );
+    } catch {
       resolve();
-    });
+    }
   });
 }
 
-/**
- * Executes a full detection and filling cycle across the current frame.
- * Enforces Zero-Click Domain Guard unless explicitly triggered manually.
- */
-export async function executeAutoFillCycle(isManualTrigger = false): Promise<AutoFillRunStats> {
-  const stats: AutoFillRunStats = {
-    totalFields: 0,
-    tier1Filled: 0,
-    savedFilled: 0,
-    tier2Filled: 0,
-    unfilled: 0,
-    startTime: Date.now(),
-    durationMs: 0,
+interface StoredSession {
+  candidateId: string;
+  startedAt: number;
+  steps: number;
+  paused: boolean;
+  pausedStepKey?: string;
+  /** Which application this run belongs to (site + job id), so it never resumes on another job. */
+  jobKey?: string;
+}
+
+/** Site plus the job id in the URL (Workday "_R123", Greenhouse/iCIMS numbers, Lever UUIDs). */
+function currentJobKey(): string {
+  const href = `${window.location.pathname}${window.location.search}`;
+  const id = href.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[_-]J?R-?\d{3,}|\d{4,}/i);
+  return `${window.location.hostname}|${id ? id[0] : window.location.pathname}`;
+}
+
+function loadSession(): StoredSession | null {
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as StoredSession;
+    if (!s || Date.now() - s.startedAt > SESSION_MAX_AGE_MS) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(s: StoredSession | null): void {
+  try {
+    if (s) window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    else window.sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // ignore blocked storage
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Review bookkeeping
+// ---------------------------------------------------------------------------
+
+const reviewItems = new Map<HTMLElement, AutoFillReviewItem>();
+/** Fields behind each flag, and whether the engine put a value in them. */
+const reviewFields = new Map<HTMLElement, { field: AutoFillExtractedField; filledByEngine: boolean }>();
+
+function anchorOf(field: AutoFillExtractedField): HTMLElement {
+  if ((field.type === 'radio_group' || field.type === 'checkbox_group') && field.container) return field.container;
+  return field.element!;
+}
+
+/** Flags a question for the recruiter. `filledByEngine` = an answer was filled but should be checked. */
+function flag(field: AutoFillExtractedField, reason: string, filledByEngine = false): void {
+  const anchor = anchorOf(field);
+  markElementNeedsReview(anchor, reason);
+  if (!reviewItems.has(anchor)) newFlagsThisRun++;
+  reviewItems.set(anchor, { question: field.question || field.label || 'Unlabeled field', reason, element: anchor });
+  reviewFields.set(anchor, { field, filledByEngine });
+}
+
+function unflag(anchor: HTMLElement): void {
+  clearReviewMark(anchor);
+  reviewItems.delete(anchor);
+  reviewFields.delete(anchor);
+}
+
+function markFilled(field: AutoFillExtractedField, tier: 'tier1' | 'saved_response' | 'tier2', strategy: string): void {
+  const anchor = anchorOf(field);
+  unflag(anchor);
+  markElementAsAutoFilled(anchor, tier, strategy);
+}
+
+/** Drops flags for questions that left the page, and for empty questions the recruiter has since answered. */
+function pruneReviewItems(): void {
+  for (const [el] of reviewItems) {
+    if (!el.isConnected) {
+      reviewItems.delete(el);
+      reviewFields.delete(el);
+      continue;
+    }
+    const info = reviewFields.get(el);
+    if (info && !info.filledByEngine && info.field.element?.isConnected && isAnswered(info.field)) unflag(el);
+  }
+}
+
+// AI answers given during a hands-free run, listed again on the final review panel
+const AI_LOG_KEY = 'jdm_ai_answers_v1';
+
+const AI_LOG_MAX_AGE_MS = 60 * 60 * 1000;
+
+interface AiLogEntry extends AutoFillReviewItem {
+  host: string;
+  t: number;
+}
+
+function logAiAnswer(question: string, answer: string): void {
+  try {
+    const list = JSON.parse(window.sessionStorage.getItem(AI_LOG_KEY) || '[]') as AiLogEntry[];
+    const short = answer.length > 80 ? `${answer.slice(0, 77)}...` : answer;
+    const entry: AiLogEntry = { question, reason: `Answered by AI: ${short}`, host: window.location.hostname, t: Date.now() };
+    const next = list.filter((i) => i.question !== question).concat(entry);
+    window.sessionStorage.setItem(AI_LOG_KEY, JSON.stringify(next.slice(-20)));
+  } catch {
+    // best effort
+  }
+}
+
+/** AI answers given on this site in the last hour (this application). */
+function readAiLog(): AutoFillReviewItem[] {
+  try {
+    const list = JSON.parse(window.sessionStorage.getItem(AI_LOG_KEY) || '[]') as AiLogEntry[];
+    return list
+      .filter((i) => i.host === window.location.hostname && Date.now() - i.t < AI_LOG_MAX_AGE_MS)
+      .map((i) => ({ question: i.question, reason: i.reason }));
+  } catch {
+    return [];
+  }
+}
+
+function clearAiLog(): void {
+  try {
+    window.sessionStorage.removeItem(AI_LOG_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Items for the final "ready to submit" panel: open flags on this page plus earlier AI answers. */
+function readyItems(flagged: AutoFillReviewItem[]): AutoFillReviewItem[] {
+  const seen = new Set(flagged.map((f) => f.question));
+  return flagged.concat(readAiLog().filter((i) => !seen.has(i.question)));
+}
+
+/** A radio group whose checked option is just the page's default still gets our answer. */
+function isAnswered(field: AutoFillExtractedField): boolean {
+  if (field.type === 'radio_group' && !field.isAria) {
+    const checked = (field.optionElements || []).find((o) => (o.element as HTMLInputElement).checked);
+    if (checked && (checked.element as HTMLInputElement).defaultChecked) return false;
+  }
+  if (field.type === 'checkbox') return Boolean(readFieldValue(field));
+  return isFieldFilled(field);
+}
+
+function withOptions(field: AutoFillExtractedField, options?: string[]): AutoFillExtractedField {
+  return options && options.length ? { ...field, options } : field;
+}
+
+function emptyStats(): AutoFillRunStats {
+  return { totalFields: 0, tier1Filled: 0, savedFilled: 0, tier2Filled: 0, unfilled: 0, flagged: 0, startTime: Date.now(), durationMs: 0 };
+}
+
+interface StepResult {
+  stats: AutoFillRunStats;
+  stepKey: string;
+  flagged: AutoFillReviewItem[];
+  requiredMissing: AutoFillReviewItem[];
+  fieldsFound: number;
+  newFlags: number;
+}
+
+// ---------------------------------------------------------------------------
+// Filling one page
+// ---------------------------------------------------------------------------
+
+async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): Promise<StepResult | null> {
+  const profile = currentProfile;
+  if (!profile) return null;
+  const stats = emptyStats();
+  pruneReviewItems();
+  newFlagsThisRun = 0;
+
+  const scan = scanApplicationForm(document);
+  if (!scan.isJobApplication || scan.fields.length === 0) {
+    return { stats, stepKey: computeStepKey([]), flagged: [], requiredMissing: [], fieldsFound: 0, newFlags: 0 };
+  }
+  const stepKey = computeStepKey(scan.fields);
+  stats.totalFields = scan.fields.length;
+
+  const todo = scan.fields.filter((f) => f.element && !isElementAlreadyProcessed(f.element) && !isAnswered(f));
+  if (todo.length > 0 && showToasts) showAutoFillStartingToast(profile.fullName);
+
+  const job = await getJobContext(profile.id);
+  const ctx: Tier1Context = {
+    fileFieldCount: scan.fields.filter((f) => f.type === 'file').length,
+    companyName: job.companyName,
+    hasSeparateCountryCode: scan.fields.some((f) => /\b(country|phone|dial(ing)?|calling) code\b/i.test(f.question || '')),
   };
 
-  // Reset file injection lock when URL changes or user clicks manual trigger
-  const currentHref = window.location.href;
-  if (currentHref !== lastProcessedUrl) {
-    lastProcessedUrl = currentHref;
-    hasResumeBeenInjectedOnPage = false;
-  }
-  if (isManualTrigger) {
-    hasResumeBeenInjectedOnPage = false;
-  }
+  const pending: AutoFillExtractedField[] = [];
+  const optionsSeen = new Map<number, string[]>();
 
-  // Zero-Click Domain Guard: automatic zero-click only activates on recognized ATS / job domains
-  if (!isManualTrigger && !isRecognizedJobBoardOrAts()) {
-    return stats;
-  }
-
-  if (!isAutoFillEnabled && !isManualTrigger) {
-    return stats;
-  }
-
-  if (!currentProfile) {
-    // Try reloading profile once from storage
-    await loadStoredState();
-    if (!currentProfile) {
-      if (isManualTrigger) {
-        showAutoFillInfoToast('No Candidate Selected', 'Please select an active candidate in the JDMatcher sidebar first.');
-      }
-      return stats;
-    }
-  }
-
-  if (isExecutionInProgress) {
-    return stats;
-  }
-
-  isExecutionInProgress = true;
-
-  try {
-    const scan = scanApplicationForm(document);
-    if (!scan.isJobApplication || scan.fields.length === 0) {
-      isExecutionInProgress = false;
-      if (isManualTrigger) {
-        showAutoFillInfoToast('No Application Form Found', 'No supported job application inputs detected on this page.');
-      }
-      return stats;
-    }
-
-    // Trigger visual pop-up notification that auto-fill is RUNNING
-    showAutoFillStartingToast(currentProfile.fullName);
-
-    stats.totalFields = scan.fields.length;
-    const unresolvedFields: AutoFillExtractedField[] = [];
-
-    // --- PHASE 1 & 2: Local Heuristic (Tier 1) & Saved Responses ---
-    for (const field of scan.fields) {
-      if (!field.element) continue;
-
-      // Skip elements that have already been filled or have user values
-      if (isElementAlreadyProcessed(field.element)) {
+  // --- Tier 1 (profile) and saved answers ---
+  for (const field of todo) {
+    const el = field.element!;
+    const t1 = resolveTier1Field(field, profile, ctx);
+    if (t1) {
+      if (t1.skip) {
+        markElementProcessed(el);
         continue;
       }
-
-      // Guard file input fields against duplicate/infinite injection loops
-      if (field.type === 'file') {
-        const fileInput = field.element as HTMLInputElement;
-
-        // 1. If already injected on this page or step, skip!
-        if (hasResumeBeenInjectedOnPage && !isManualTrigger) {
-          markElementProcessed(field.element);
-          continue;
-        }
-
-        // 2. If file input already has a file selected, skip!
-        if (fileInput.files && fileInput.files.length > 0) {
-          hasResumeBeenInjectedOnPage = true;
-          markElementProcessed(field.element);
-          continue;
-        }
-
-        // 3. If file input or its container was stamped as injected, skip!
-        if (
-          fileInput.getAttribute('data-jdm-file-injected') === 'true' ||
-          fileInput.closest('[data-jdm-file-injected="true"], [data-jdm-resume-container="true"]')
-        ) {
-          hasResumeBeenInjectedOnPage = true;
-          markElementProcessed(field.element);
-          continue;
-        }
-
-        // 4. If ATS already displays an uploaded resume chip/badge nearby
-        const hasExistingResumeBadge = Boolean(
-          document.querySelector(
-            '[data-automation-id*="file-upload-item"], .file-upload-preview, .uploaded-file, [data-qa*="resume-uploaded"], .resume-upload-success, .resume-preview, [data-mapped-resume-uploaded]'
-          )
-        );
-        if (hasExistingResumeBadge && !isManualTrigger) {
-          hasResumeBeenInjectedOnPage = true;
-          markElementProcessed(field.element);
-          continue;
-        }
+      if (!t1.value && !(t1.values && t1.values.length)) {
+        flag(field, t1.reason || 'This needs the recruiter.');
+        markElementProcessed(el);
+        continue;
       }
+      const res = await injectField(field, t1, profile);
+      if (res.ok) {
+        stats.tier1Filled++;
+        markFilled(field, 'tier1', t1.strategy);
+        if (t1.needsReview) flag(field, t1.reason || 'Please check this answer.', true);
+        markElementProcessed(el);
+        continue;
+      }
+      if (res.optionsSeen?.length) optionsSeen.set(field.elementIndex, res.optionsSeen);
+      if (t1.final) {
+        flag(field, res.reason || 'The profile answer could not be filled.');
+        markElementProcessed(el);
+        continue;
+      }
+    }
 
-      // If text input already has non-empty text, don't overwrite
-      if (
-        (field.type === 'text' || field.type === 'textarea') &&
-        field.currentValue &&
-        field.currentValue.trim().length > 0
-      ) {
+    const saved = resolveSavedResponse(withOptions(field, optionsSeen.get(field.elementIndex)), profile);
+    if (saved) {
+      const res = await injectField(field, saved, profile);
+      if (res.ok) {
+        stats.savedFilled++;
+        markFilled(field, 'saved_response', saved.strategy);
+        if (saved.needsReview) flag(field, saved.reason || 'Please check this saved answer.', true);
+        trackForLearning(field, job.companyName);
+        markElementProcessed(el);
+        continue;
+      }
+      if (res.optionsSeen?.length) optionsSeen.set(field.elementIndex, res.optionsSeen);
+    }
+    pending.push(field);
+  }
+
+  // --- Tier 2 (AI with resume + job description) ---
+  const aiFields: AutoFillExtractedField[] = [];
+  for (const field of pending) {
+    const el = field.element!;
+    if (field.type === 'file') {
+      if (field.isRequired) flag(field, 'Upload this document yourself.');
+      markElementProcessed(el);
+      continue;
+    }
+    if (field.type === 'checkbox' && !field.isRequired) {
+      markElementProcessed(el); // optional boxes stay as they are
+      continue;
+    }
+    let f = withOptions(field, optionsSeen.get(field.elementIndex));
+    if ((f.type === 'dropdown_button' || f.type === 'combobox') && !(f.options && f.options.length)) {
+      const opts = await readLazyOptions(f);
+      if (opts.length) f = { ...f, options: opts };
+    }
+    aiFields.push(f);
+  }
+
+  if (aiFields.length > 0) {
+    const outcome = await requestAiAnswers(aiFields, profile, job, { isManualTrigger, stepKey });
+    const answered = new Set<number>();
+    for (const ans of outcome.answers) {
+      const field = aiFields.find((f) => f.elementIndex === ans.elementIndex);
+      if (!field || !field.element) continue;
+      answered.add(field.elementIndex);
+      const hasValue = Boolean(ans.value && ans.value.trim()) || Boolean(ans.values && ans.values.length);
+      if (!hasValue) {
+        // Leaving an optional question blank is fine; a required one needs the recruiter
+        if (field.isRequired) {
+          flag(field, ans.reasoning ? `AI: ${ans.reasoning}` : 'The resume and profile do not answer this.');
+        }
         markElementProcessed(field.element);
         continue;
       }
-
-      // 1. Try Tier 1 Instant Local Heuristics
-      const tier1Result = resolveTier1Field(field, currentProfile);
-      if (tier1Result) {
-        const injected = await injectFieldValue(field.element, tier1Result.value, currentProfile);
-        if (injected) {
-          if (field.type === 'file') {
-            hasResumeBeenInjectedOnPage = true;
-          }
-          markElementAsAutoFilled(field.element, 'tier1', tier1Result.strategy);
-          markElementProcessed(field.element);
-          stats.tier1Filled++;
-          continue;
-        }
+      const choiceType = field.type === 'select' || field.type === 'radio_group' || field.type === 'dropdown_button';
+      if (choiceType && field.options && field.options.length && !answerFitsOptions(field.options, ans.value)) {
+        flag(field, `The AI answer "${ans.value}" doesn't match any option.`);
+        markElementProcessed(field.element);
+        continue;
       }
-
-      // 2. Try Saved Responses Matcher
-      const savedResult = resolveSavedResponse(field, currentProfile);
-      if (savedResult) {
-        const injected = await injectFieldValue(field.element, savedResult.value, currentProfile);
-        if (injected) {
-          markElementAsAutoFilled(field.element, 'saved_response', savedResult.strategy);
-          markElementProcessed(field.element);
-          stats.savedFilled++;
-          continue;
-        }
+      const res = await injectField(field, { value: ans.value, values: ans.values }, profile);
+      if (res.ok) {
+        stats.tier2Filled++;
+        markFilled(field, 'tier2', ans.reasoning || 'AI answer');
+        if (ans.needsReview) flag(field, ans.reasoning ? `AI is unsure: ${ans.reasoning}` : 'AI is unsure about this answer.', true);
+        logAiAnswer(field.question || field.label || 'Question', ans.values && ans.values.length ? ans.values.join(', ') : ans.value);
+        trackForLearning(field, job.companyName);
+      } else {
+        flag(field, res.reason || 'The AI answer could not be filled.');
       }
-
-      // If unresolved, queue for Tier 2 AI fallback
-      unresolvedFields.push(field);
+      markElementProcessed(field.element);
     }
-
-    // --- PHASE 3: Tier 2 AI Gemini Fallback ---
-    if (unresolvedFields.length > 0) {
-      const tier2Count = await resolveTier2Fields(unresolvedFields, currentProfile, undefined, isManualTrigger);
-      stats.tier2Filled = tier2Count;
+    for (const field of aiFields) {
+      if (answered.has(field.elementIndex) || !field.element) continue;
+      if (outcome.skippedReason) {
+        // Not marked processed, so a later run can retry
+        if (field.isRequired) flag(field, `No AI answer yet (${outcome.skippedReason}).`);
+      } else {
+        if (field.isRequired) flag(field, 'No answer found in the profile or resume.');
+        markElementProcessed(field.element);
+      }
     }
+  }
 
-    stats.unfilled = stats.totalFields - (stats.tier1Filled + stats.savedFilled + stats.tier2Filled);
-    stats.durationMs = Date.now() - stats.startTime;
-
-    // Trigger visual pop-up notification that auto-fill is COMPLETE
-    if (stats.tier1Filled > 0 || stats.savedFilled > 0 || stats.tier2Filled > 0) {
-      showAutoFillCompletedToast(stats, currentProfile.fullName);
-    } else if (isManualTrigger) {
-      showAutoFillInfoToast('Fields Already Populated', 'All detectable application inputs are already completed.');
-    } else {
-      dismissAutoFillToast();
+  // --- Required fields still empty ---
+  const requiredMissing: AutoFillReviewItem[] = [];
+  for (const field of scan.fields) {
+    if (!field.isRequired || !field.element || !field.element.isConnected) continue;
+    if (field.type === 'file' && !readFieldValue(field) && field.element.getAttribute('data-jdm-file-injected') !== 'true') {
+      if (!reviewItems.has(anchorOf(field))) flag(field, 'Required upload is missing.');
+      requiredMissing.push(reviewItems.get(anchorOf(field))!);
+      continue;
     }
+    if (field.type !== 'file' && !readFieldValue(field)) {
+      if (!reviewItems.has(anchorOf(field))) flag(field, 'Required and still empty.');
+      requiredMissing.push(reviewItems.get(anchorOf(field))!);
+    }
+  }
 
-    return stats;
+  const flagged = Array.from(reviewItems.values()).filter((i) => i.element?.isConnected);
+  stats.flagged = flagged.length;
+  stats.unfilled = Math.max(0, todo.length - (stats.tier1Filled + stats.savedFilled + stats.tier2Filled));
+  stats.durationMs = Date.now() - stats.startTime;
+  return { stats, stepKey, flagged, requiredMissing, fieldsFound: scan.fields.length, newFlags: newFlagsThisRun };
+}
+
+async function runStepLocked(isManualTrigger: boolean, showToasts: boolean): Promise<StepResult | null> {
+  if (isExecutionInProgress) {
+    // A page-change fill is running; wait for it instead of skipping
+    const free = await waitFor(() => !isExecutionInProgress, 20000, 100);
+    if (!free) return null;
+  }
+  isExecutionInProgress = true;
+  try {
+    return await fillCurrentStep(isManualTrigger, showToasts);
   } catch (err) {
-    console.error('[JDMatcher Auto-Fill] Error executing cycle:', err);
-    dismissAutoFillToast();
-    return stats;
+    console.error('[JDMatcher Auto-Fill] Error filling page:', err);
+    return null;
   } finally {
     isExecutionInProgress = false;
   }
 }
 
+function finishToasts(result: StepResult, isManualTrigger: boolean): void {
+  const filled = result.stats.tier1Filled + result.stats.savedFilled + result.stats.tier2Filled;
+  if (result.flagged.length > 0 && (filled > 0 || result.newFlags > 0 || isManualTrigger)) {
+    dismissAutoFillToast();
+    showReviewPanel('review', result.flagged);
+  } else if (result.flagged.length > 0) {
+    dismissAutoFillToast();
+  } else if (filled > 0) {
+    showAutoFillCompletedToast(result.stats, currentProfile?.fullName);
+  } else if (isManualTrigger) {
+    showAutoFillInfoToast('Nothing left to fill', 'All detectable application questions already have answers.');
+  } else {
+    dismissAutoFillToast();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Single fill (zero-click on page load / page changes)
+// ---------------------------------------------------------------------------
+
 /**
- * Initialize auto-fill listener and observer.
+ * Executes a full detection and filling cycle across the current frame.
+ * Zero-click runs only happen on recognized ATS / job domains.
  */
+export async function executeAutoFillCycle(isManualTrigger = false): Promise<AutoFillRunStats> {
+  if (!isManualTrigger && !isRecognizedJobBoardOrAts()) return emptyStats();
+  if (!isAutoFillEnabled && !isManualTrigger) return emptyStats();
+  if (!currentProfile) {
+    await loadStoredState();
+    if (!currentProfile) {
+      if (isManualTrigger) showAutoFillInfoToast('No Candidate Selected', 'Please select an active candidate in the JDMatcher sidebar first.');
+      return emptyStats();
+    }
+  }
+  if (isManualTrigger) resetTier2CircuitBreaker();
+  const result = await runStepLocked(isManualTrigger, true);
+  if (!result) return emptyStats();
+  if (result.fieldsFound === 0) {
+    if (isManualTrigger) showNoFormToast();
+    return result.stats;
+  }
+  finishToasts(result, isManualTrigger);
+  return result.stats;
+}
+
+/** Only the top frame of a page without form frames reports "no form" (ad/analytics iframes stay quiet). */
+function showNoFormToast(): void {
+  if (window.top !== window.self) return;
+  if (document.querySelector('iframe')) return;
+  showAutoFillInfoToast('No Application Form Found', 'No supported job application inputs detected on this page.');
+}
+
+// ---------------------------------------------------------------------------
+// Hands-free run across pages
+// ---------------------------------------------------------------------------
+
+function endSession(): void {
+  saveSession(null);
+  acknowledgedStepKey = '';
+  clearAiLog();
+}
+
+function pauseSession(stepKey: string): void {
+  const s = loadSession();
+  if (s) saveSession({ ...s, paused: true, pausedStepKey: stepKey });
+  pausedInThisDocument = true;
+  userAdvancedWhilePaused = false;
+}
+
+/** Called when the recruiter presses Continue after reviewing a paused page. */
+function continueAfterReview(stepKey: string): void {
+  acknowledgedStepKey = stepKey;
+  pausedInThisDocument = false;
+  const s = loadSession();
+  if (s) saveSession({ ...s, paused: false });
+  void runAutoSession(false);
+}
+
+/**
+ * Fills page after page until the Review/Submit page, a page that needs the recruiter, or an error.
+ * `onFirstPage` lets the caller answer the widget quickly while the run continues.
+ */
+async function runAutoSession(isManualTrigger: boolean, onFirstPage?: (stats: AutoFillRunStats) => void): Promise<AutoFillRunStats> {
+  if (sessionRunning || !currentProfile) {
+    onFirstPage?.(emptyStats());
+    return emptyStats();
+  }
+  sessionRunning = true;
+  const existing = loadSession();
+  const sameRun = Boolean(existing && existing.candidateId === currentProfile.id && existing.jobKey === currentJobKey());
+  saveSession({
+    candidateId: currentProfile.id,
+    startedAt: sameRun ? existing!.startedAt : Date.now(),
+    steps: sameRun ? existing!.steps : 0,
+    paused: false,
+    jobKey: currentJobKey(),
+  });
+  if (isManualTrigger) {
+    resetTier2CircuitBreaker();
+    dismissReviewPanel();
+  }
+
+  let firstStats: AutoFillRunStats | null = null;
+  const report = (stats: AutoFillRunStats) => {
+    if (!firstStats) {
+      firstStats = stats;
+      onFirstPage?.(stats);
+    }
+  };
+
+  try {
+    for (let step = 0; step < MAX_STEPS; step++) {
+      let result = await runStepLocked(isManualTrigger && step === 0, true);
+      if (result && result.fieldsFound === 0) {
+        // The next page may still be loading
+        await sleep(1200);
+        result = await runStepLocked(false, true);
+      }
+      if (!result) {
+        report(emptyStats());
+        break;
+      }
+      report(result.stats);
+      if (result.fieldsFound === 0) {
+        // A review page has no questions, only the final Submit button
+        if (isFinalStep() && (step > 0 || loadSession()?.steps)) {
+          snapshotTrackedAnswers();
+          showReviewPanel('ready', readyItems([]));
+        } else if (isManualTrigger && step === 0) {
+          showNoFormToast();
+        }
+        endSession();
+        break;
+      }
+      dismissAutoFillToast();
+
+      if (!isAutoAdvanceAllowedHere()) {
+        showReviewPanel('linkedin', result.flagged);
+        endSession();
+        break;
+      }
+      if (!settings.autoAdvance) {
+        finishToasts(result, isManualTrigger);
+        endSession();
+        break;
+      }
+
+      const reviewed = result.stepKey === acknowledgedStepKey;
+      const blocking = settings.pauseOnFlags && !reviewed ? result.flagged : result.requiredMissing;
+      if (blocking.length > 0) {
+        const stepKey = result.stepKey;
+        pauseSession(stepKey);
+        showReviewPanel('paused', blocking, () => continueAfterReview(stepKey));
+        break;
+      }
+
+      if (isFinalStep()) {
+        snapshotTrackedAnswers();
+        showReviewPanel('ready', readyItems(result.flagged));
+        endSession();
+        break;
+      }
+
+      const next = findNextButton();
+      if (!next) {
+        finishToasts(result, isManualTrigger);
+        endSession();
+        break;
+      }
+      if (!isSafeNextButton(next, (loadSession()?.steps || 0) > 0)) {
+        const label = (next.innerText || (next as HTMLInputElement).value || 'Continue').trim().slice(0, 40);
+        showReviewPanel(
+          'stopped',
+          readyItems(result.flagged).concat({
+            question: `"${label}" might submit the application.`,
+            reason: 'Check the page, then click it yourself.',
+          })
+        );
+        endSession();
+        break;
+      }
+
+      snapshotTrackedAnswers();
+      const s = loadSession();
+      if (s) saveSession({ ...s, steps: s.steps + 1 });
+      if ((s?.steps || 0) + 1 > MAX_STEPS) {
+        showReviewPanel('stopped', [{ question: 'Stopped after many pages.', reason: 'Check the form and continue by hand.' }]);
+        endSession();
+        break;
+      }
+
+      const outcome = await clickNextAndWait(next, result.stepKey, () => computeStepKey(scanApplicationForm(document).fields));
+      if (outcome === 'advanced') continue;
+
+      const stepKey = result.stepKey;
+      pauseSession(stepKey);
+      if (outcome === 'errors') {
+        const errors = visibleErrors().map((e) => ({ question: e, reason: 'Shown by the site after clicking Next.' }));
+        showReviewPanel('errors', errors, () => continueAfterReview(stepKey));
+      } else {
+        showReviewPanel(
+          'stopped',
+          [{ question: 'The page did not change after clicking Next.', reason: 'Check the page, then press Continue.' }],
+          () => continueAfterReview(stepKey)
+        );
+      }
+      break;
+    }
+  } finally {
+    sessionRunning = false;
+  }
+  return firstStats || emptyStats();
+}
+
+/**
+ * Carries on with a run after a full page load, or after the recruiter clicked Next themselves on a
+ * paused page. New questions appearing on the paused page (follow-ups) do NOT resume the run.
+ */
+async function maybeResumeSession(): Promise<boolean> {
+  const s = loadSession();
+  if (!s || !currentProfile || s.candidateId !== currentProfile.id || sessionRunning) return false;
+  if (s.jobKey && s.jobKey !== currentJobKey()) {
+    // A different job: the old run is over
+    endSession();
+    return false;
+  }
+  if (!s.paused) {
+    if (pausedInThisDocument) return false;
+    void runAutoSession(false);
+    return true;
+  }
+  const currentKey = () => computeStepKey(scanApplicationForm(document).fields);
+  if (pausedInThisDocument) {
+    if (!userAdvancedWhilePaused) return false;
+    userAdvancedWhilePaused = false;
+    const moved = await waitFor(() => currentKey() !== s.pausedStepKey, 10000, 300);
+    if (!moved) return false;
+    await waitForDomQuiet(500, 4000);
+  } else if (currentKey() === s.pausedStepKey) {
+    return false; // same page reloaded: stay paused
+  }
+  pausedInThisDocument = false;
+  saveSession({ ...s, paused: false });
+  void runAutoSession(false);
+  return true;
+}
+
+const NEXT_CLICK_RE = /^(next|continue|save and continue|save continue|proceed)\b/;
+
+/** Notices the recruiter's own Next click while a run is paused. */
+function installPausedNextListener(): void {
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!event.isTrusted || !pausedInThisDocument) return;
+      const btn = (event.target as HTMLElement | null)?.closest?.('button, [role="button"], input[type="button"], input[type="submit"], a') as HTMLElement | null;
+      if (!btn) return;
+      const text = normalizeText(btn.innerText || (btn as HTMLInputElement).value || btn.getAttribute('aria-label') || '');
+      if (NEXT_CLICK_RE.test(text)) userAdvancedWhilePaused = true;
+    },
+    { capture: true }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
+
 async function initialize(): Promise<void> {
   await loadStoredState();
+  installAnswerRecorder(() => currentProfile?.id || null);
+  installPausedNextListener();
 
-  // Watch for dynamic DOM changes (Workday steps, LinkedIn Easy Apply modals)
   startFormObserver({
     debounceMs: 400,
     onFormMutated: () => {
-      executeAutoFillCycle(false);
+      if (sessionRunning || isExecutionInProgress) return;
+      void maybeResumeSession().then((resumed) => {
+        if (!resumed) void executeAutoFillCycle(false);
+      });
     },
   });
 
-  // Listen for background / dock messages
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    // Manual "⚡ Fill Form" button works universally on ANY site
+    // "⚡ Fill Form" works on any site and starts the hands-free run
     if (message.type === 'TRIGGER_AUTOFILL' || message.type === 'EXECUTE_AUTOFILL') {
-      executeAutoFillCycle(true).then(stats => sendResponse({ success: true, stats }));
+      (async () => {
+        if (!currentProfile) await loadStoredState();
+        if (!currentProfile) {
+          showAutoFillInfoToast('No Candidate Selected', 'Please select an active candidate in the JDMatcher sidebar first.');
+          sendResponse({ success: false, stats: emptyStats() });
+          return;
+        }
+        acknowledgedStepKey = '';
+        pausedInThisDocument = false;
+        let responded = false;
+        const respond = (stats: AutoFillRunStats) => {
+          if (responded) return;
+          responded = true;
+          // Frames without a form answer late so the frame that has the form reports first
+          const filled = stats.tier1Filled + stats.savedFilled + stats.tier2Filled;
+          if (stats.totalFields === 0 && filled === 0) setTimeout(() => sendResponse({ success: true, stats }), 2500);
+          else sendResponse({ success: true, stats });
+        };
+        await runAutoSession(true, respond);
+        respond(emptyStats());
+      })();
       return true;
     }
 
     if (message.type === 'TOGGLE_AUTOFILL') {
       isAutoFillEnabled = Boolean(message.enabled);
       chrome.storage.local.set({ autofillEnabled: isAutoFillEnabled });
-      if (isAutoFillEnabled) {
-        executeAutoFillCycle();
-      }
+      if (isAutoFillEnabled) void executeAutoFillCycle();
+      else endSession();
       sendResponse({ success: true, enabled: isAutoFillEnabled });
+      return true;
+    }
+
+    if (message.type === 'SET_AUTOFILL_SETTINGS') {
+      if (message.autoAdvance !== undefined) settings.autoAdvance = Boolean(message.autoAdvance);
+      if (message.pauseOnFlags !== undefined) settings.pauseOnFlags = Boolean(message.pauseOnFlags);
+      sendResponse({ success: true, settings });
+      return true;
+    }
+
+    if (message.type === 'RESUME_AUTOFILL') {
+      sendResponse({ success: triggerFrameContinue() });
       return true;
     }
 
     if (message.type === 'PROFILE_UPDATED') {
       if (message.profile) {
+        const changed = currentProfile?.id !== message.profile.id;
         currentProfile = message.profile;
-        hasResumeBeenInjectedOnPage = false;
-        if (isAutoFillEnabled) {
-          executeAutoFillCycle();
-        }
+        resetJobContextCache();
+        if (changed) endSession();
+        if (isAutoFillEnabled) void executeAutoFillCycle();
       }
       sendResponse({ success: true });
       return true;
     }
+    return false;
   });
 
-  // Initial scan if profile already cached
-  if (currentProfile && isAutoFillEnabled) {
-    // Delay slightly to let ATS hydration finish
+  chrome.storage.onChanged?.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.autofillAutoAdvance) settings.autoAdvance = changes.autofillAutoAdvance.newValue !== false;
+    if (changes.autofillPauseOnFlags) settings.pauseOnFlags = changes.autofillPauseOnFlags.newValue !== false;
+    if (changes.cachedCandidateProfile?.newValue) currentProfile = changes.cachedCandidateProfile.newValue;
+  });
+
+  if (currentProfile) {
+    // Let the ATS finish rendering, then continue a run that was in progress or do a normal fill
     setTimeout(() => {
-      executeAutoFillCycle();
-    }, 800);
+      void maybeResumeSession().then((resumed) => {
+        if (!resumed && isAutoFillEnabled) void executeAutoFillCycle(false);
+      });
+    }, 900);
   }
 }
 
-// Auto-run initialization
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initialize);
+  document.addEventListener('DOMContentLoaded', () => void initialize());
 } else {
-  initialize();
+  void initialize();
 }

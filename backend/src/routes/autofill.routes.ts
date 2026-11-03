@@ -12,15 +12,39 @@ import { telemetryService } from '../services/telemetryService.js';
 
 const unresolvedFieldSchema = z.object({
   id: z.string().max(255),
-  elementIndex: z.number().int().min(0).max(500),
+  elementIndex: z.number().int().min(0).max(2000),
   name: z.string().max(255),
   label: z.string().max(1000),
+  question: z.string().max(1000).optional(),
   type: z.string().max(50),
-  options: z.array(z.string().max(500)).max(100).optional(),
+  options: z.array(z.string().max(500)).max(400).optional(),
   placeholder: z.string().max(1000).optional(),
   isRequired: z.boolean().optional(),
   currentValue: z.string().max(5000).optional(),
+  maxLength: z.number().int().min(1).max(100000).optional(),
 });
+
+const autofillConfirmSchema = z.object({
+  candidateId: z.string().uuid(),
+  answers: z
+    .array(
+      z.object({
+        question: z.string().min(3).max(500),
+        answer: z.string().min(1).max(1000),
+        fieldType: z.string().max(50).optional(),
+      })
+    )
+    .min(1)
+    .max(60),
+});
+
+const MAX_SAVED_RESPONSES = 300;
+
+/** Question text compared without case or punctuation. */
+const normalizeQuestion = (q: string) => q.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Visa statuses that never need employer sponsorship. */
+const NO_SPONSORSHIP_STATUSES = new Set(['US Citizen', 'Green Card']);
 
 const autofillResolveSchema = z.object({
   candidateId: z.string().uuid(),
@@ -130,10 +154,25 @@ export const autofillRoutes: FastifyPluginAsync = async (fastify: FastifyInstanc
       const firstName = nameParts[0] || '';
       const lastName = nameParts.slice(1).join(' ') || '';
 
+      // Screening answers the profile doesn't have get a default, and the extension flags them for review
+      // Drop empty values so they don't wipe out the defaults below
+      const rawScreening: Record<string, any> = Object.fromEntries(
+        Object.entries((rawStructured.screening as Record<string, any>) || {}).filter(([, v]) => v !== undefined && v !== null && v !== '')
+      );
+      const assumed: string[] = [];
+      if (rawScreening.authorizedToWorkInUS === undefined || rawScreening.authorizedToWorkInUS === null) assumed.push('authorizedToWorkInUS');
+      if (rawScreening.willingToRelocate === undefined || rawScreening.willingToRelocate === null) assumed.push('willingToRelocate');
+      if (rawScreening.noticePeriodWeeks === undefined || rawScreening.noticePeriodWeeks === null || rawScreening.noticePeriodWeeks === '') {
+        assumed.push('noticePeriodWeeks');
+      }
+      const totalYearsExperience = candidate.yearsOfExperience && candidate.yearsOfExperience > 0 ? candidate.yearsOfExperience : undefined;
+      const social: Record<string, any> = rawStructured.social || {};
+
       const profilePayload = {
         id: candidate.id,
         fullName: candidate.fullName,
         primaryTitle: candidate.primaryTitle,
+        totalYearsExperience,
         personal: {
           firstName,
           lastName,
@@ -155,17 +194,19 @@ export const autofillRoutes: FastifyPluginAsync = async (fastify: FastifyInstanc
         },
         education: rawStructured.education || [],
         workHistory: rawStructured.workHistory || [],
-        social: rawStructured.social || {},
+        social: { ...social, otherWebsiteUrl: social.otherWebsiteUrl || social.otherUrl },
         equalOpportunity: rawStructured.equalOpportunity || {},
         screening: {
-          authorizedToWorkInUS: rawStructured.screening?.authorizedToWorkInUS ?? true,
-          requireSponsorship: rawStructured.screening?.requireSponsorship ?? (candidate.visaStatus !== 'US Citizen' && candidate.visaStatus !== 'Green Card'),
-          currentSponsorshipType: rawStructured.screening?.currentSponsorshipType || candidate.visaStatus,
-          securityClearanceLevel: rawStructured.screening?.securityClearanceLevel || candidate.securityClearance,
-          willingToRelocate: rawStructured.screening?.willingToRelocate ?? true,
-          noticePeriodWeeks: rawStructured.screening?.noticePeriodWeeks || '2',
-          desiredSalaryUsd: rawStructured.screening?.desiredSalaryUsd,
-          ...(rawStructured.screening || {}),
+          authorizedToWorkInUS: true,
+          requireSponsorship: !NO_SPONSORSHIP_STATUSES.has(candidate.visaStatus),
+          currentSponsorshipType: candidate.visaStatus,
+          securityClearanceLevel: candidate.securityClearance,
+          willingToRelocate: true,
+          noticePeriodWeeks: '2',
+          ...rawScreening,
+          // The portal saves "desiredSalary"; older profiles use "desiredSalaryUsd"
+          desiredSalaryUsd: rawScreening.desiredSalaryUsd ?? rawScreening.desiredSalary,
+          assumed,
         },
         applicationQuestions: rawStructured.applicationQuestions || {},
         savedResponses: candidate.savedResponses || [],
@@ -231,63 +272,12 @@ export const autofillRoutes: FastifyPluginAsync = async (fastify: FastifyInstanc
           { jobTitle, companyName, jobDescription }
         );
 
-        // Self-Learning Loop: Cache high-confidence responses into savedResponses
+        // AI answers are NOT saved here any more. They used to be saved straight into savedResponses and
+        // reused on later jobs without anyone checking them. The extension now sends the answers the
+        // recruiter actually submitted to /autofill-confirm instead.
         const currentSavedResponses: Array<Record<string, any>> = Array.isArray(candidate.savedResponses)
-          ? [...candidate.savedResponses]
+          ? candidate.savedResponses
           : [];
-
-        const normalizedExisting = new Set(
-          currentSavedResponses.map((r: any) =>
-            (r.questionPattern || r.question || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-          )
-        );
-
-        let newResponsesAdded = false;
-
-        for (const resolved of aiResponse.result.resolvedFields) {
-          const inputField = unresolvedFields.find(
-            (f) => f.id === resolved.fieldId || f.elementIndex === resolved.elementIndex
-          );
-
-          if (!inputField || !resolved.value) continue;
-
-          // Exclude long essays or cover letters (> 500 chars) as they are typically job-specific
-          if (resolved.value.length > 500) continue;
-
-          // Check for high confidence (>= 0.85 or string 'HIGH')
-          const isHighConfidence =
-            typeof resolved.confidence === 'number'
-              ? resolved.confidence >= 0.85
-              : String(resolved.confidence).toUpperCase() === 'HIGH';
-
-          if (!isHighConfidence) continue;
-
-          const questionText = inputField.label || inputField.name;
-          const normalizedQ = questionText.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-          if (normalizedQ.length > 3 && !normalizedExisting.has(normalizedQ)) {
-            normalizedExisting.add(normalizedQ);
-            currentSavedResponses.push({
-              questionPattern: questionText,
-              question: questionText,
-              answer: resolved.value,
-              matchType: 'semantic',
-              category: 'screening',
-              updatedAt: new Date().toISOString(),
-            });
-            newResponsesAdded = true;
-          }
-        }
-
-        if (newResponsesAdded) {
-          await db
-            .update(candidates)
-            .set({
-              savedResponses: currentSavedResponses,
-              updatedAt: new Date(),
-            })
-            .where(eq(candidates.id, candidate.id));
-        }
 
         // Record consumption and billing at 1x standard evaluation rate
         const billingResult = await BillingService.recordEvaluationConsumption(
@@ -321,6 +311,80 @@ export const autofillRoutes: FastifyPluginAsync = async (fastify: FastifyInstanc
           message: err.message || 'Failed to resolve application fields',
         });
       }
+    }
+  );
+
+  // POST /api/v1/extension/autofill-confirm
+  // Saves the screening answers the recruiter actually submitted, so the next application can reuse them.
+  fastify.post(
+    '/autofill-confirm',
+    { preHandler: [authGuard, deviceGuard] },
+    async (request, reply) => {
+      const user = request.user!;
+      const parseResult = autofillConfirmSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({ error: 'INVALID_PAYLOAD', details: parseResult.error.issues });
+      }
+      if (user.role === 'super_admin') {
+        return reply.status(403).send({
+          error: 'ZERO_KNOWLEDGE_VIOLATION',
+          message: 'Super Admins are strictly prohibited from writing candidate profiles',
+        });
+      }
+
+      const { candidateId, answers } = parseResult.data;
+      const conditions = [
+        eq(candidates.id, candidateId),
+        eq(candidates.organizationId, user.organizationId!),
+        eq(candidates.isActive, true),
+      ];
+      if (user.role === 'recruiter') {
+        conditions.push(eq(candidates.createdByRecruiterId, user.id));
+      }
+      const [candidate] = await db.select().from(candidates).where(and(...conditions)).limit(1);
+      if (!candidate) {
+        return reply.status(404).send({ error: 'CANDIDATE_NOT_FOUND', message: 'Candidate profile not found or access denied' });
+      }
+
+      const saved: Array<Record<string, any>> = Array.isArray(candidate.savedResponses) ? [...candidate.savedResponses] : [];
+      const now = new Date().toISOString();
+      let changed = 0;
+      for (const a of answers) {
+        const key = normalizeQuestion(a.question);
+        if (key.length < 4) continue;
+        const idx = saved.findIndex((r: any) => normalizeQuestion(r.questionPattern || r.question || '') === key);
+        const entry = {
+          ...(idx >= 0 ? saved[idx] : {}),
+          questionPattern: a.question,
+          question: a.question,
+          answer: a.answer,
+          matchType: 'semantic',
+          category: 'screening',
+          source: 'confirmed',
+          updatedAt: now,
+        };
+        if (idx >= 0) {
+          // Never overwrite an answer the recruiter typed into the portal by hand
+          if (saved[idx].source === 'manual' && saved[idx].answer !== a.answer) continue;
+          saved[idx] = entry;
+        } else {
+          saved.push(entry);
+        }
+        changed++;
+      }
+
+      if (changed > 0) {
+        // Keep the newest answers if the list grows too long
+        const trimmed = saved
+          .map((r, i) => ({ r, i }))
+          .sort((x, y) => String(y.r.updatedAt || '').localeCompare(String(x.r.updatedAt || '')) || x.i - y.i)
+          .slice(0, MAX_SAVED_RESPONSES)
+          .sort((x, y) => x.i - y.i)
+          .map((x) => x.r);
+        await db.update(candidates).set({ savedResponses: trimmed, updatedAt: new Date() }).where(eq(candidates.id, candidate.id));
+      }
+
+      return reply.send({ success: true, saved: changed });
     }
   );
 };
