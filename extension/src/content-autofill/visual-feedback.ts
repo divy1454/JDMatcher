@@ -23,6 +23,12 @@ export function markElementAsAutoFilled(
   }
 }
 
+/** Removes the "filled by JDMatcher" highlight (the recruiter changed the answer by hand). */
+export function clearAutoFilledMark(element: Element): void {
+  element.classList.remove('jdm-autofilled-tier1', 'jdm-autofilled-saved', 'jdm-autofilled-tier2');
+  if (element instanceof HTMLElement && element.title.startsWith('JDMatcher:')) element.removeAttribute('title');
+}
+
 let activeToastContainer: HTMLElement | null = null;
 let toastTimeoutId: any = null;
 

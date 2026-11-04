@@ -16,7 +16,7 @@ import {
   AutoFillFieldType,
 } from '../content/types';
 import { normalizeText, wordCount, hasWord, meaningfulTokens } from './text-utils';
-import { matchOption, isDeclineText, expandUsState, answerToChecked, canonicalVisa, highestOptionIndex } from './option-matcher';
+import { matchOption, isDeclineText, expandUsState, answerToChecked, canonicalVisa, highestOptionIndex, dialCodeOf } from './option-matcher';
 
 export interface Tier1Context {
   /** Number of file inputs on the page (one unlabeled upload is the resume). */
@@ -96,6 +96,37 @@ function assumedReview(p: Profile, key: string, label: string): Partial<Answer> 
   return isAssumed(p, key)
     ? { needsReview: true, reason: `${label} is not set in the candidate profile, so the default was used.` }
     : {};
+}
+
+/**
+ * The candidate's phone country code as digits ("+1" -> "1"): from the profile setting, else from a
+ * "+91 98765 43210" style number, else +1 for a US (or unknown) country. Null when it can't be known.
+ */
+export function profileDialCode(p: Profile): string | null {
+  const explicit = String(p.personal?.phoneCountryCode || '').replace(/\D/g, '');
+  if (explicit) return explicit;
+  const fromNumber = String(p.personal?.phone || '').trim().match(/^\+(\d{1,3})[\s\-().]/);
+  if (fromNumber) return fromNumber[1];
+  const country = normalizeText(p.personal?.country);
+  if (!country || /^(us|usa|united states( of america)?|america)$/.test(country)) return '1';
+  return null;
+}
+
+/**
+ * A phone country-code picker: a dropdown or type-ahead showing "+44" / "🇬🇧 +44", or whose options are
+ * dial codes. Sites often pre-set it from the browser language (+44 on an en-GB page).
+ */
+export function isDialCodeControl(f: AutoFillExtractedField): boolean {
+  if (f.type !== 'select' && f.type !== 'dropdown_button' && f.type !== 'combobox') return false;
+  if (dialCodeOf(f.currentValue)) return true;
+  const options = f.options || [];
+  return options.length >= 5 && options.filter((o) => dialCodeOf(o)).length >= options.length * 0.6;
+}
+
+function dialCodeAnswer(p: Profile): Answer {
+  const country = present(p.personal?.country) || 'United States';
+  const code = profileDialCode(p);
+  return { value: code ? `${country} (+${code})` : country };
 }
 
 function isYesNoQuestion(q: Q): boolean {
@@ -290,7 +321,8 @@ const QUESTION_RULES: Rule[] = [
   // ---- Work authorization ----
   {
     name: 'visa_type',
-    kinds: CHOICE_KINDS,
+    // Staffing portals (JobDiva) ask "What is your immigration status?" as a text box
+    kinds: [...CHOICE_KINDS, 'textarea'],
     test: (q) =>
       /\b(visa|immigration|citizenship|work authori[sz]ation|work permit|employment authori[sz]ation)\s+(status|type|category)\b|\bwhat (is your|type of) (current )?(visa|work authori[sz]ation|immigration)\b|\bcurrent (visa|immigration)\b|\bwhich (visa|work authori[sz]ation)\b/.test(q.norm) &&
       !/\b(require|need)\b.*\bsponsor/.test(q.norm),
@@ -593,15 +625,12 @@ const FIELD_RULES: Rule[] = [
   {
     name: 'phone_country_code',
     test: (q) => /\b(country|phone|calling|dial|dialing) code\b|\bcountry phone code\b/.test(q.norm),
-    answer: (p) => {
-      const code = (present(p.personal?.phoneCountryCode) || '+1').replace(/[^\d+]/g, '');
-      const country = present(p.personal?.country) || 'United States';
-      return { value: `${country} (${code.startsWith('+') ? code : '+' + code})` };
-    },
+    answer: (p) => dialCodeAnswer(p),
   },
   {
     name: 'phone',
-    kinds: TEXTISH,
+    // Never a type-ahead: a search box labelled "Phone" is the country-code picker next to the number
+    kinds: ['text'],
     test: (q) =>
       /\b(phone|telephone|contact number|cell phone|mobile (phone|number|no)|cell (number|no)|phone number)\b|^(mobile|cell)$/.test(q.norm),
     answer: (p, _q, f, ctx) => {
@@ -861,6 +890,10 @@ export function resolveTier1Field(
   ctx: Tier1Context = { fileFieldCount: 1 }
 ): AutoFillFieldResult | null {
   const q = buildQuestion(field);
+
+  // A country-code picker shares the "Phone" label with the number box, or has no label at all
+  // (the AI can't do better than the profile here, so a code that won't go in is flagged instead)
+  if (isDialCodeControl(field)) return finalize(field, { ...dialCodeAnswer(profile), final: true }, { name: 'phone_country_code' });
 
   if (q.autocomplete && AUTOCOMPLETE_MAP[q.autocomplete] && field.type !== 'radio_group' && field.type !== 'checkbox_group') {
     const ans = AUTOCOMPLETE_MAP[q.autocomplete](profile, field, ctx);

@@ -132,6 +132,46 @@ function canonicalCountry(norm: string): string | null {
   return COUNTRY_ALIASES[norm] || null;
 }
 
+// ---------------------------------------------------------------------------
+// Phone country codes ("+44", "🇬🇧 +44", "United Kingdom (+44)", "+1 268")
+// ---------------------------------------------------------------------------
+
+/** Two-letter country codes seen in phone pickers, as canonical country names. */
+const ISO_COUNTRIES: Record<string, string> = {
+  us: 'united states', ca: 'canada', gb: 'united kingdom', uk: 'united kingdom', in: 'india', mx: 'mexico',
+  au: 'australia', nz: 'new zealand', ie: 'ireland', de: 'germany', fr: 'france', es: 'spain', it: 'italy',
+  nl: 'netherlands', pl: 'poland', pt: 'portugal', ch: 'switzerland', se: 'sweden', no: 'norway',
+  dk: 'denmark', fi: 'finland', be: 'belgium', at: 'austria', br: 'brazil', ar: 'argentina', co: 'colombia',
+  cn: 'china', jp: 'japan', kr: 'south korea', sg: 'singapore', ph: 'philippines', pk: 'pakistan',
+  bd: 'bangladesh', lk: 'sri lanka', np: 'nepal', ae: 'united arab emirates', sa: 'saudi arabia',
+  il: 'israel', za: 'south africa', ng: 'nigeria', ke: 'kenya', eg: 'egypt', tr: 'turkey', ua: 'ukraine',
+  ro: 'romania', vn: 'vietnam', th: 'thailand', my: 'malaysia', id: 'indonesia', jm: 'jamaica', pr: 'puerto rico',
+};
+
+const DIAL_RE = /\+\s?(\d{1,4})(?:[\s-](\d{3})(?!\d))?/;
+const FLAG_RE = /([\u{1F1E6}-\u{1F1FF}])([\u{1F1E6}-\u{1F1FF}])/u;
+
+/** The dial code in a short phone-picker text ("+44", "🇬🇧 +44", "+1 268" -> "1268"), or null. */
+export function dialCodeOf(text: string | null | undefined): string | null {
+  const s = String(text || '').trim();
+  if (!s || s.length > 60) return null;
+  const m = s.match(DIAL_RE);
+  if (!m) return null;
+  return m[2] ? m[1] + m[2] : m[1];
+}
+
+/** The country named next to a dial code (by name, two-letter code or flag emoji), or null. */
+function dialCountry(text: string): string | null {
+  const flag = text.match(FLAG_RE);
+  if (flag) {
+    const iso = String.fromCharCode(flag[1].codePointAt(0)! - 0x1f1e6 + 97, flag[2].codePointAt(0)! - 0x1f1e6 + 97);
+    if (ISO_COUNTRIES[iso]) return ISO_COUNTRIES[iso];
+  }
+  const rest = normalizeText(text.replace(DIAL_RE, ' ').replace(FLAG_RE, ' '));
+  if (!rest) return null;
+  return canonicalCountry(rest) || ISO_COUNTRIES[rest] || (Object.values(ISO_COUNTRIES).includes(rest) ? rest : null);
+}
+
 /** "Charlotte, NC, USA" -> { city: "charlotte", state: "north carolina" }; null without a comma. */
 function cityAndState(raw: string): { city: string; state: string | null } | null {
   if (!raw.includes(',')) return null;
@@ -258,6 +298,17 @@ export function scoreOption(target: string, option: string): number {
   }
   if (isDeclineText(o)) return 0;
 
+  // 2a. Phone country codes: the code must be the same, and so must the country when both name one
+  const tDial = dialCodeOf(target);
+  const oDial = dialCodeOf(option);
+  if (tDial && oDial) {
+    if (tDial !== oDial) return 0;
+    const tc = dialCountry(target);
+    const oc = dialCountry(option);
+    if (tc && oc) return tc === oc ? 99 : 0;
+    return 90;
+  }
+
   // 2. Countries, states, degrees
   const tc = canonicalCountry(t);
   const oc = canonicalCountry(o);
@@ -324,24 +375,21 @@ export function matchOption(
 ): OptionMatch | null {
   if (!options || options.length === 0 || !target || !normalizeText(target)) return null;
 
-  let best: OptionMatch | null = null;
-  let secondScore = -1;
+  const scored: OptionMatch[] = [];
   options.forEach((option, index) => {
     if (isPlaceholderOption(option)) return;
     const score = scoreOption(target, option);
-    if (score <= 0) return;
-    if (!best || score > best.score || (score === best.score && option.length < best.option.length)) {
-      if (best) secondScore = Math.max(secondScore, best.score);
-      best = { option, index, score, ambiguous: false };
-    } else {
-      secondScore = Math.max(secondScore, score);
-    }
+    if (score > 0) scored.push({ option, index, score, ambiguous: false });
   });
-
-  const result = best as OptionMatch | null;
-  if (!result || result.score < minScore) return null;
+  if (scored.length === 0) return null;
+  // Highest score; among equals the shortest wording, then the first one
+  scored.sort((a, b) => b.score - a.score || a.option.length - b.option.length || a.index - b.index);
+  const result = scored[0];
+  if (result.score < minScore) return null;
   // Two different options with the same score below "certain" means we cannot tell them apart.
-  result.ambiguous = result.score < 95 && secondScore === result.score;
+  // The same text twice ("+1" for both the US and Canada) is not a real choice.
+  const rivals = scored.filter((s) => s.score === result.score && normalizeText(s.option) !== normalizeText(result.option));
+  result.ambiguous = result.score < 95 && rivals.length > 0;
   return result;
 }
 

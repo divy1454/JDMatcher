@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>JobDiva Portal</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; margin-bottom: 4px; }
+    .form-group.check label { display: inline; }
+    input[type="text"], input[type="email"], input[type="tel"], textarea { width: 100%; padding: 5px; box-sizing: border-box; }
+    textarea { height: 70px; }
+  </style>
+</head>
+<body>
+  <!--
+    Mimics a JobDiva candidate portal (www1.jobdiva.com/portal/?a=...#/signup?jobid=...): a hash-routed app.
+    Quick Apply asks for contact details and a resume on the first page; the second page has only two
+    questions ("immigration status" and "anything else"), which used to read as "No Application Form Found".
+  -->
+  <div id="app"></div>
+  <script>
+    const app = document.getElementById('app');
+    function contactPage() {
+      app.innerHTML = `
+        <h2>Business Systems Analyst - IT - II</h2>
+        <p class="step">Step 1 of 2</p>
+        <form onsubmit="return false">
+          <div class="form-group"><label for="fn">First Name *</label><input type="text" id="fn" required></div>
+          <div class="form-group"><label for="ln">Last Name *</label><input type="text" id="ln" required></div>
+          <div class="form-group"><label for="em">Email *</label><input type="email" id="em" required></div>
+          <div class="form-group"><label for="ph">Phone *</label><input type="tel" id="ph" required></div>
+          <div class="form-group"><label for="cv">Resume *</label><input type="file" id="cv" required></div>
+          <div class="form-group check"><input type="checkbox" id="sms"><label for="sms">I agree to receive text messages (SMS) about job opportunities</label></div>
+          <div class="form-group check"><input type="checkbox" id="consent" required><label for="consent">I consent to the storage of my data for job placement purposes *</label></div>
+          <button type="button" id="next">Next</button>
+        </form>`;
+      document.getElementById('next').addEventListener('click', () => {
+        window.__contact = {
+          fn: document.getElementById('fn').value,
+          em: document.getElementById('em').value,
+          ph: document.getElementById('ph').value,
+          cv: document.getElementById('cv').files.length,
+          sms: document.getElementById('sms').checked,
+          consent: document.getElementById('consent').checked,
+        };
+        location.hash = '#/questions?jobid=33552111';
+      });
+    }
+    function questionsPage() {
+      app.innerHTML = `
+        <p class="step">Step 2 of 2</p>
+        <form onsubmit="return false">
+          <div class="form-group"><label for="q1">What is your immigration status?</label><textarea id="q1"></textarea></div>
+          <div class="form-group"><label for="q2">Do you want to tell us anything else about yourself?</label><textarea id="q2"></textarea></div>
+          <button type="button" id="submit">Submit</button>
+        </form>`;
+      document.getElementById('submit').addEventListener('click', () => { window.__submitClicked = (window.__submitClicked || 0) + 1; });
+    }
+    function route() {
+      if (location.hash.startsWith('#/questions')) questionsPage();
+      else contactPage();
+    }
+    window.addEventListener('hashchange', route);
+    route();
+  </script>
+</body>
+</html>

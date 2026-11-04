@@ -18,6 +18,7 @@ import {
   textOf,
   waitFor,
 } from './dom-utils';
+import { asEngine } from './user-activity';
 
 export interface InjectResult {
   ok: boolean;
@@ -461,7 +462,15 @@ export function injectResumeFile(element: HTMLInputElement, profile: CandidateAu
 // ---------------------------------------------------------------------------
 
 /** Fills one field with a resolved answer and verifies it. */
-export async function injectField(
+export function injectField(
+  field: AutoFillExtractedField,
+  result: Pick<AutoFillFieldResult, 'value' | 'values' | 'pick' | 'alternatives'>,
+  profile: CandidateAutoFillProfile
+): Promise<InjectResult> {
+  return asEngine(() => injectFieldNow(field, result, profile));
+}
+
+async function injectFieldNow(
   field: AutoFillExtractedField,
   result: Pick<AutoFillFieldResult, 'value' | 'values' | 'pick' | 'alternatives'>,
   profile: CandidateAutoFillProfile
@@ -502,7 +511,11 @@ export async function injectField(
 }
 
 /** Opens a dropdown/combobox just long enough to read its options (for the AI). */
-export async function readLazyOptions(field: AutoFillExtractedField): Promise<string[]> {
+export function readLazyOptions(field: AutoFillExtractedField): Promise<string[]> {
+  return asEngine(() => readLazyOptionsNow(field));
+}
+
+async function readLazyOptionsNow(field: AutoFillExtractedField): Promise<string[]> {
   const el = field.element;
   if (!el || !el.isConnected) return [];
   if (field.type === 'dropdown_button') {

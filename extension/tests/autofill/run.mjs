@@ -124,6 +124,31 @@ check('matching', '"Austin, Texas" never picks "Austin, MN, USA"', m(['Austin, M
 check('matching', '"Not Hispanic or Latino" is not "Hispanic or Latino"', m(['Hispanic or Latino', 'Not Hispanic or Latino'], 'Not Hispanic or Latino'), 'Not Hispanic or Latino');
 check('matching', '"Asian" = "Asian (Not Hispanic or Latino)"', m(['Hispanic or Latino', 'White (Not Hispanic or Latino)', 'Asian (Not Hispanic or Latino)', 'Decline to self-identify'], 'Asian'), 'Asian (Not Hispanic or Latino)');
 check('matching', 'Highest travel option', unit.highestOptionIndex(['--', '0%', 'Up to 25%', '50-75%', '75%+', "I'd rather not say"]), 4);
+check('matching', 'Country code: +1 among +44/+1/+91', m(['+44', '+1', '+91'], 'United States (+1)'), '+1');
+check('matching', 'Country code with flags: the US, not Canada', m(['🇬🇧 +44', '🇨🇦 +1', '🇺🇸 +1', '🇮🇳 +91'], 'United States (+1)'), '🇺🇸 +1');
+check('matching', 'Country code with names: "United States (+1)", not "Canada (+1)"', m(['United Kingdom (+44)', 'Canada (+1)', 'United States (+1)'], 'United States (+1)'), 'United States (+1)');
+check('matching', '"+1 268" (Antigua) is not +1', m(['Antigua and Barbuda (+1 268)', 'US (+1)'], 'United States (+1)'), 'US (+1)');
+check('matching', 'Two identical "+1" entries are not a real choice', unit.matchOption(['+44', '+1', '+1'], 'United States (+1)')?.ambiguous, false);
+check('matching', 'Dial code read from "🇬🇧 +44"', unit.dialCodeOf('🇬🇧 +44'), '44');
+
+// ---------------------------------------------------------------------------
+// Which sites fill on page load
+// ---------------------------------------------------------------------------
+const loc = (u) => {
+  const x = new URL(u);
+  return { hostname: x.hostname, pathname: x.pathname, href: x.href };
+};
+check('sites', 'JobDiva candidate portal is a known ATS', unit.knownAtsSite(loc('https://www1.jobdiva.com/portal/?a=abc123#/signup?jobid=33552111')), 'jobdiva');
+check('sites', "JobDiva's recruiter pages are not", unit.knownAtsSite(loc('https://www1.jobdiva.com/employers/myjobs/search.jsp')), null);
+check('sites', 'ADP Workforce Now careers page is a known ATS', unit.knownAtsSite(loc('https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=4c9a1f1d&jobId=9201686904331_11')), 'adp');
+check('sites', 'ADP payroll pages never fill on load', unit.isRecognizedJobPage(loc('https://workforcenow.adp.com/theme/index.html')), false);
+check('sites', 'Rippling application is a known ATS', unit.knownAtsSite(loc('https://ats.rippling.com/en-GB/acme/jobs/fd8d9c2e/apply?step=application')), 'rippling');
+check('sites', 'LinkedIn job pages fill on load', unit.isRecognizedJobPage(loc('https://www.linkedin.com/jobs/view/3901234567/')), true);
+check('sites', 'LinkedIn profile editing never fills on load', unit.isRecognizedJobPage(loc('https://www.linkedin.com/in/someone/edit/intro/')), false);
+check('sites', 'Indeed employer dashboard never fills on load', unit.isRecognizedJobPage(loc('https://employers.indeed.com/jobs')), false);
+check('sites', 'BambooHR careers page is a known ATS', unit.knownAtsSite(loc('https://acme.bamboohr.com/careers/123')), 'bamboohr');
+check('sites', 'BambooHR employee pages never fill on load', unit.isRecognizedJobPage(loc('https://acme.bamboohr.com/employees/employee.php?id=4')), false);
+check('sites', 'A company careers page still fills on load', unit.isRecognizedJobPage(loc('https://careers.example-co.com/apply/devops-123')), true);
 
 // ---------------------------------------------------------------------------
 // Browser cases
@@ -148,7 +173,7 @@ async function openCase(url, fixture, extraScript = '', profile = PROFILE) {
   await context.route('**/*', (route) => {
     const u = new URL(route.request().url());
     if (u.pathname === '/__jdm/engine.js') return route.fulfill({ status: 200, contentType: 'application/javascript', body: engineJs });
-    if (route.request().url() === url) return route.fulfill({ status: 200, contentType: 'text/html', body: html });
+    if (route.request().url() === url.split('#')[0]) return route.fulfill({ status: 200, contentType: 'text/html', body: html });
     return route.abort();
   });
   await page.goto(url);
@@ -496,6 +521,17 @@ async function ashbyCase(group, profile, expect) {
   check(group, 'Veteran box', await ticked('eeoc_veteran'), expect.veteran);
   check(group, 'Disability box', await ticked('eeoc_disability'), expect.disability);
   check(group, 'Nothing flagged', (await panelItems(page)).filter((t) => !/^Answered by AI/.test(t)), []);
+  if (expect.rerender) {
+    // The site redraws the gender question empty. The engine ticked those boxes itself (a script click makes
+    // the browser report a "trusted" change), which must not count as the recruiter's own answer.
+    await page.evaluate(() => {
+      const fs = document.querySelector('input[name="eeoc_gender"]').closest('fieldset');
+      fs.innerHTML = fs.innerHTML.replace(/ checked=""/g, '');
+      fs.querySelectorAll('input').forEach((i) => (i.checked = false));
+    });
+    await page.waitForTimeout(3000);
+    check(group, 'Question redrawn empty by the site is filled again', await ticked('eeoc_gender'), expect.gender);
+  }
   check(group, 'Submit never clicked', await page.evaluate(() => window.__submitClicked || 0), 0);
   if (expect.screenshot) await page.screenshot({ path: path.join(tmp, 'screens', 'ashby.png'), fullPage: true });
   check(group, 'No page errors', errors, []);
@@ -510,6 +546,7 @@ async function ashbyCase(group, profile, expect) {
     veteran: ['I am not a veteran'],
     disability: ['I do not want to answer'],
     screenshot: true,
+    rerender: true,
   });
   await ashbyCase('ashby EEO checkboxes (candidate declines)', PROFILE, {
     gender: ['Decline to self-identify'],
@@ -517,6 +554,88 @@ async function ashbyCase(group, profile, expect) {
     veteran: ['Decline to self-identify'],
     disability: ['I do not want to answer'],
   });
+}
+
+// --- J. JobDiva portal: fills on load, and the two-question second page is filled too ---
+{
+  const group = 'jobdiva portal (two-question page)';
+  const { context, page, errors } = await openCase(
+    'https://www1.jobdiva.com/portal/?a=ujjdnwla3quedl1culy4s1lbkd30se0468typf7ri5xf15b01ima19bd2w54rhbk#/signup?jobid=33552111',
+    'jobdiva.html'
+  );
+  await page.waitForTimeout(2500);
+  check(group, 'Fills on page load without pressing Fill Form', await val(page, '#fn'), 'Ravi');
+  await fillForm(page);
+  const title = await waitForPanel(page, 'Ready', 60000);
+  check(group, 'Reaches "ready to submit"', title, 'Ready', 'startsWith');
+  const c = await page.evaluate(() => window.__contact || {});
+  check(group, 'Page 1: email', c.em, 'ravi.kumar@example.com');
+  check(group, 'Page 1: resume attached', c.cv, 1);
+  check(group, 'Page 1: SMS opt-in left unticked', c.sms, false);
+  check(group, 'Page 1: data-storage consent ticked', c.consent, true);
+  check(group, 'Page 2: immigration status (only two questions on the page)', await val(page, '#q1'), 'H-1B');
+  check(group, 'Page 2: optional "anything else" left blank', await val(page, '#q2'), '');
+  check(group, 'Submit never clicked', await page.evaluate(() => window.__submitClicked || 0), 0);
+  check(group, 'No page errors', errors, []);
+  await context.close();
+}
+
+// --- K. Two-question page on a site the engine doesn't know: nothing on load, Fill Form fills it ---
+{
+  const group = 'two-question page on an unknown site';
+  const { context, page, errors } = await openCase('https://portal.staffing-example.com/candidate/?a=abc#/questions?jobid=77', 'jobdiva.html');
+  await page.waitForTimeout(2500);
+  check(group, 'Not filled on page load (unknown site)', await val(page, '#q1'), '');
+  await fillForm(page);
+  const title = await waitForPanel(page, 'Ready', 30000);
+  check(group, 'Fill Form fills it instead of "No Application Form Found"', title, 'Ready', 'startsWith');
+  check(group, 'Immigration status', await val(page, '#q1'), 'H-1B');
+  check(group, 'Submit never clicked', await page.evaluate(() => window.__submitClicked || 0), 0);
+  check(group, 'No page errors', errors, []);
+  await context.close();
+}
+
+// --- L. Rippling phone on an en-GB page; the recruiter's own changes are left alone ---
+{
+  const group = 'rippling phone (en-GB page, +1 in settings) and hand edits';
+  const { context, page, errors } = await openCase(
+    'https://ats.rippling.com/en-GB/beazleysecurity/jobs/fd8d9c2e-efff-428f-abdd-7bf2e7adbed1/apply?jr_id=6acea32abb78de94580d76a8&jobBoardSlug=beazleysecurity&jobId=fd8d9c2e-efff-428f-abdd-7bf2e7adbed1&step=application',
+    'rippling-phone.html'
+  );
+  await page.waitForTimeout(1500);
+  await fillForm(page);
+  const title = await waitForPanel(page, 'Ready', 60000);
+  check(group, 'Reaches "ready to submit"', title, 'Ready', 'startsWith');
+  const ccText = () => page.evaluate(() => document.getElementById('cc').textContent);
+  check(group, 'Country code the site pre-set (+44) is changed to +1', await ccText(), '🇺🇸 +1');
+  check(group, 'Number filled in the redrawn box, without the country code', await val(page, '#phone'), '5125550100');
+
+  // The recruiter picks India by hand; the site redraws the number box empty
+  await page.click('#cc');
+  await page.click('[data-list] li:has-text("+91")');
+  await page.waitForTimeout(3500);
+  check(group, "Recruiter's country code is kept (+91)", await ccText(), '🇮🇳 +91');
+  check(group, 'Number box is not refilled after the recruiter changed the phone', await val(page, '#phone'), '');
+  await page.click('#phone');
+  await page.keyboard.type('98765 43210', { delay: 30 });
+  await page.waitForTimeout(3000);
+  check(group, "Recruiter's number is kept", await val(page, '#phone'), '98765 43210');
+
+  // While the recruiter edits LinkedIn, a new question appears: filled once they pause, cursor stays put
+  await page.click('#li', { clickCount: 3 });
+  await page.keyboard.type('https://www.linkedin.com/in/ravi-k', { delay: 20 });
+  await page.evaluate(() => {
+    document.getElementById('extra').innerHTML = '<div class="field"><label for="org">Current company</label><input id="org"></div>';
+  });
+  await page.keyboard.type('umar', { delay: 150 });
+  await page.waitForTimeout(3500);
+  check(group, 'New question filled after the recruiter paused', await val(page, '#org'), 'Acme Corp');
+  check(group, "Recruiter's LinkedIn edit is kept", await val(page, '#li'), 'https://www.linkedin.com/in/ravi-kumar');
+  check(group, 'Cursor is still in the box the recruiter was typing in', await page.evaluate(() => document.activeElement?.id), 'li');
+  check(group, 'Submit never clicked', await page.evaluate(() => window.__submitClicked || 0), 0);
+  await page.screenshot({ path: path.join(tmp, 'screens', 'rippling-phone.png'), fullPage: true });
+  check(group, 'No page errors', errors, []);
+  await context.close();
 }
 
 await browser.close();
