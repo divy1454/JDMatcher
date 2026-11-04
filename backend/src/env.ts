@@ -19,6 +19,14 @@ const envSchema = z.object({
   SUPER_ADMIN_NAME: z.string().default('Platform Super Admin'),
   // Production CORS: Comma-separated list of allowed origins
   CORS_ORIGINS: z.string().optional().default(''),
+  // Job finder (all optional). Career sites need no keys; JSearch / Adzuna add job-portal results.
+  JSEARCH_API_KEY: z.string().optional().default(''),
+  // 'rapidapi' (default) or 'openwebninja' (key from openwebninja.com)
+  JSEARCH_PROVIDER: z.string().optional().default(''),
+  ADZUNA_APP_ID: z.string().optional().default(''),
+  ADZUNA_APP_KEY: z.string().optional().default(''),
+  // JSON array of career page links (or company objects) that replaces the default career-site list
+  JOB_FINDER_WATCHLIST: z.string().optional().default(''),
 }).refine((data) => {
   if (data.NODE_ENV === 'production') {
     if (data.JWT_SECRET === 'super-secret-jwt-key-jdmatcher-enterprise-2026-production') {

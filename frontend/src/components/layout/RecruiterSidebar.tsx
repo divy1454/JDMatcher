@@ -18,7 +18,7 @@ import {
 const recruiterNavItems = [
   { name: 'Bench Candidates', href: '/recruiter-portal/candidates', icon: Users, badge: 'Talent' },
   { name: 'Resume Analyser', href: '/recruiter-portal/analyse', icon: Sparkles, badge: 'AI Intel' },
-  { name: 'Job Board Hunter', href: '/recruiter-portal/job-hunter', icon: Compass, badge: 'JobSpy' },
+  { name: 'Job Hunter', href: '/recruiter-portal/job-hunter', icon: Compass, badge: 'Live' },
   { name: 'Matched Job Descriptions', href: '/recruiter-portal/matched-jds', icon: Briefcase, badge: 'Matches' },
   { name: 'My Profile & Machine', href: '/recruiter-portal/profile', icon: User, badge: 'Profile' },
 ];

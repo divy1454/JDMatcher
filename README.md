@@ -270,6 +270,11 @@ npm run dev
 - `POST /` — Add candidate with strict visa, clearance, and skill tags.
 - `PUT /:id` — Update consultant details.
 
+### Job Hunter (`/api/jobs`)
+- `POST /find` — Newest matching jobs for one bench candidate from company career sites (Greenhouse, Lever, Ashby, SmartRecruiters, Workday) and, with a `JSEARCH_API_KEY`, job portals. Last 24 hours by default (3 days / 1 week / 1 month), candidate's industry first, jobs asking for US citizenship or a clearance hidden unless the candidate qualifies.
+- `GET /finder-config` — Default career sites, portal keys on/off, industries.
+- How it works, settings and tests: [backend/src/services/jobFinder/README.md](backend/src/services/jobFinder/README.md) (`cd backend && npm run test:job-finder`).
+
 ---
 
 ## 🔒 Security Best Practices

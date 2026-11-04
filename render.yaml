@@ -33,6 +33,13 @@ services:
         sync: false
       - key: SUPER_ADMIN_NAME
         value: Divy Patel
+      # Job Hunter (optional): job portal results; career sites need no keys
+      - key: JSEARCH_API_KEY
+        sync: false
+      - key: JSEARCH_PROVIDER
+        sync: false
+      - key: JOB_FINDER_WATCHLIST
+        sync: false
 
   # Service 2: Next.js Frontend Dashboard
   - type: web
