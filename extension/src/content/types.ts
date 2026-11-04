@@ -96,6 +96,8 @@ export interface SocialLinks {
   portfolioUrl?: string;
   twitterUrl?: string;
   otherWebsiteUrl?: string;
+  /** Key used by the recruiter portal form (same meaning as otherWebsiteUrl). */
+  otherUrl?: string;
 }
 
 export interface EqualOpportunity {
@@ -114,7 +116,11 @@ export interface ScreeningAuthorization {
   willingToTravelPercentage?: string | number;
   noticePeriodWeeks?: string | number;
   desiredSalaryUsd?: string | number;
+  /** Key used by the recruiter portal form (same meaning as desiredSalaryUsd). */
+  desiredSalary?: string | number;
   currentSalaryUsd?: string | number;
+  /** Screening keys the backend filled with a default because the profile had no value. */
+  assumed?: string[];
 }
 
 export interface ApplicationQuestions {
@@ -125,9 +131,12 @@ export interface ApplicationQuestions {
 export interface SavedResponseItem {
   id?: string;
   questionPattern: string;
+  question?: string;
   answer: string;
-  matchType?: 'exact' | 'regex' | 'semantic';
+  matchType?: 'exact' | 'regex' | 'semantic' | 'keyword';
   category?: string;
+  /** 'confirmed' = answer the recruiter actually submitted, 'ai' = unconfirmed AI suggestion. */
+  source?: 'manual' | 'confirmed' | 'ai';
   updatedAt?: string;
 }
 
@@ -135,6 +144,8 @@ export interface CandidateAutoFillProfile {
   id: string;
   fullName: string;
   primaryTitle?: string;
+  /** Total professional experience in years, when known. */
+  totalYearsExperience?: number;
   personal: PersonalInformation;
   education?: EducationItem[];
   workHistory?: WorkExperienceItem[];
@@ -154,29 +165,83 @@ export interface CandidateAutoFillProfile {
 // FORM DETECTION & RESOLUTION ENGINE TYPES
 // ==========================================
 
-export type AutoFillFieldType = 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'file' | 'combobox';
+export type AutoFillFieldType =
+  | 'text'
+  | 'textarea'
+  | 'select'
+  | 'radio'
+  | 'checkbox'
+  | 'file'
+  | 'combobox'
+  /** One question answered by picking one radio button (native or ARIA). */
+  | 'radio_group'
+  /** One question answered by ticking one or more checkboxes. */
+  | 'checkbox_group'
+  /** A button that opens a listbox (Workday "Select One" dropdowns). */
+  | 'dropdown_button';
+
+export interface AutoFillOptionElement {
+  label: string;
+  element: HTMLElement;
+}
 
 export interface AutoFillExtractedField {
   id: string;
   elementIndex: number;
   name: string;
+  /** The question text shown to the user (for groups: the group question, never an option label). */
   label: string;
+  question?: string;
   type: AutoFillFieldType;
   options?: string[];
   placeholder?: string;
   isRequired?: boolean;
   currentValue?: string;
   selector?: string;
+  /** Primary element (first radio of a group, the select, the input, the dropdown button). */
   element?: HTMLElement;
+  /** Element to highlight for the whole question (fieldset/container for groups). */
+  container?: HTMLElement;
+  /** For radio/checkbox groups: each option with its element. */
+  optionElements?: AutoFillOptionElement[];
+  /** True when the widget uses ARIA roles instead of native inputs. */
+  isAria?: boolean;
+  /** HTML input type for text-like inputs (email, tel, number, date, url...). */
+  inputType?: string;
+  maxLength?: number;
+  autocomplete?: string;
 }
 
 export interface AutoFillFieldResult {
   fieldId: string;
   elementIndex: number;
   value: string;
+  /** For multi-select checkbox groups. */
+  values?: string[];
   confidence: number; // 0.0 to 1.0
   tier: 'tier1' | 'saved_response' | 'tier2';
   strategy: string;
+  /** Fill it (if value is set) but ask the recruiter to look at it. */
+  needsReview?: boolean;
+  reason?: string;
+  /** Leave the field alone on purpose (e.g. marketing opt-ins, address line 2). */
+  skip?: boolean;
+  /** Do not escalate this field to the next tier (e.g. conflicting profile data). */
+  final?: boolean;
+}
+
+export interface AutoFillResolveFieldPayload {
+  id: string;
+  elementIndex: number;
+  name: string;
+  label: string;
+  question?: string;
+  type: string;
+  options?: string[];
+  placeholder?: string;
+  isRequired?: boolean;
+  currentValue?: string;
+  maxLength?: number;
 }
 
 export interface AutoFillResolveRequest {
@@ -184,17 +249,7 @@ export interface AutoFillResolveRequest {
   jobTitle?: string;
   companyName?: string;
   jobDescription?: string;
-  unresolvedFields: Array<{
-    id: string;
-    elementIndex: number;
-    name: string;
-    label: string;
-    type: AutoFillFieldType;
-    options?: string[];
-    placeholder?: string;
-    isRequired?: boolean;
-    currentValue?: string;
-  }>;
+  unresolvedFields: AutoFillResolveFieldPayload[];
 }
 
 export interface AutoFillResolveResponse {
@@ -202,7 +257,9 @@ export interface AutoFillResolveResponse {
     fieldId: string;
     elementIndex: number;
     value: string;
-    confidence: number;
+    values?: string[];
+    confidence: number | string;
+    needsReview?: boolean;
     reasoning?: string;
   }>;
 }
@@ -213,6 +270,14 @@ export interface AutoFillRunStats {
   savedFilled: number;
   tier2Filled: number;
   unfilled: number;
+  /** Answers filled or left blank that the recruiter should look at. */
+  flagged?: number;
   startTime: number;
   durationMs: number;
+}
+
+export interface AutoFillReviewItem {
+  question: string;
+  reason: string;
+  element?: HTMLElement;
 }

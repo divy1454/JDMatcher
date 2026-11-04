@@ -119,6 +119,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Answers the recruiter actually submitted: saved as confirmed answers for the candidate
+  if (message.type === 'AUTOFILL_CONFIRM') {
+    handleAutofillConfirm(message.payload)
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // "Continue" pressed on the review panel (top frame): resume the paused run in whichever frame owns it
+  if (message.type === 'RESUME_AUTOFILL') {
+    const tabId = sender.tab?.id;
+    if (tabId !== undefined) {
+      chrome.tabs.sendMessage(tabId, { type: 'RESUME_AUTOFILL' }).catch(() => {});
+    }
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (message.type === 'GET_AUTOFILL_STATE') {
     chrome.storage.local.get(['autofillEnabled', 'cachedCandidateProfile', 'selectedCandidateId']).then((res) => {
       sendResponse({
@@ -583,5 +601,28 @@ async function handleAutofillResolve(payload: any) {
 
   const data = await response.json();
   return { success: true, data };
+}
+
+async function handleAutofillConfirm(payload: any) {
+  if (!payload?.candidateId || !Array.isArray(payload.answers) || payload.answers.length === 0) {
+    return { success: false, error: 'Nothing to save' };
+  }
+  const baseUrl = await getEffectiveBaseUrl();
+  const storage = await chrome.storage.local.get(['token']);
+  const deviceId = await getOrCreateDeviceId();
+  const response = await fetch(`${baseUrl}/api/v1/extension/autofill-confirm`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${storage.token || ''}`,
+      'x-device-id': deviceId,
+    },
+    body: JSON.stringify({ candidateId: payload.candidateId, answers: payload.answers.slice(0, 60) }),
+  });
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.message || `Saving submitted answers failed (${response.status})`);
+  }
+  return { success: true };
 }
 

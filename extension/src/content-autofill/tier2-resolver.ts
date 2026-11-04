@@ -1,123 +1,165 @@
+/**
+ * Tier 2: asks the backend AI for questions the profile and saved answers could not cover.
+ *
+ * - Sends the real question text, the options, and the job description (title, company, JD).
+ * - The AI may answer "needs review" instead of guessing; such answers are flagged, not trusted.
+ * - Cost guard: at most 2 automatic calls per form page (keyed by the page's questions, not the URL,
+ *   so multi-page forms that keep the same URL still get AI help on every page) and 25 per page load.
+ *   Calls inside the cool-down wait instead of being dropped.
+ */
 import {
   AutoFillExtractedField,
+  AutoFillResolveFieldPayload,
   AutoFillResolveRequest,
   AutoFillResolveResponse,
   CandidateAutoFillProfile,
 } from '../content/types';
-import { injectFieldValue } from './dom-injector';
-import { markElementAsAutoFilled } from './visual-feedback';
-import { extractElementLabel } from './label-extractor';
+import { JobContext } from './job-context';
+import { sleep } from './dom-utils';
 
-// Tier-2 Anti-Drain Billing Circuit Breaker State
-let trackedPageUrl = typeof window !== 'undefined' ? window.location.href : '';
-let callsForCurrentUrl = 0;
-let lastTier2CallTime = 0;
-const MAX_CALLS_PER_PAGE_STEP = 2;
-const TIER2_COOLDOWN_MS = 5000;
-
-/**
- * Resets the Tier-2 circuit breaker counters (e.g. on manual trigger or step navigation).
- */
-export function resetTier2CircuitBreaker(): void {
-  callsForCurrentUrl = 0;
-  lastTier2CallTime = 0;
+export interface Tier2Answer {
+  fieldId: string;
+  elementIndex: number;
+  value: string;
+  values?: string[];
+  confidence: number;
+  needsReview: boolean;
+  reasoning?: string;
 }
 
-/**
- * Batches and sends unresolved screening questions to the backend Gemini resolver.
- * Protected by an anti-drain circuit breaker (max 2 calls per URL/step, 5s cooldown).
- */
-export async function resolveTier2Fields(
-  unresolvedFields: AutoFillExtractedField[],
-  profile: CandidateAutoFillProfile,
-  jobContext?: { jobTitle?: string; companyName?: string; jobDescription?: string },
-  isManualTrigger = false
-): Promise<number> {
-  if (unresolvedFields.length === 0) return 0;
+export interface Tier2Outcome {
+  answers: Tier2Answer[];
+  /** Why the AI was not called, when it was not. */
+  skippedReason?: string;
+}
 
-  // Circuit Breaker: Check URL navigation
-  const currentUrl = window.location.href;
-  if (currentUrl !== trackedPageUrl) {
-    trackedPageUrl = currentUrl;
-    callsForCurrentUrl = 0;
+const MAX_AUTO_CALLS_PER_STEP = 2;
+const MAX_AUTO_CALLS_PER_PAGE_LOAD = 25;
+const COOLDOWN_MS = 2500;
+const MAX_FIELDS_PER_REQUEST = 40;
+
+const callsPerStep = new Map<string, number>();
+let callsThisPageLoad = 0;
+let lastCallAt = 0;
+
+/** Resets the cost guard (e.g. after the recruiter presses Fill Form). */
+export function resetTier2CircuitBreaker(): void {
+  callsPerStep.clear();
+  callsThisPageLoad = 0;
+  lastCallAt = 0;
+}
+
+function aiFieldType(field: AutoFillExtractedField): string {
+  switch (field.type) {
+    case 'radio_group':
+      return 'radio';
+    case 'checkbox_group':
+      return 'checkbox_multi';
+    case 'dropdown_button':
+      return 'select';
+    case 'combobox':
+      return field.options && field.options.length ? 'select' : 'text';
+    case 'text':
+      return field.inputType && field.inputType !== 'text' ? field.inputType : 'text';
+    default:
+      return field.type;
   }
+}
 
-  // Automatic runs are strictly bounded to prevent infinite loops on re-rendering SPAs
-  if (!isManualTrigger) {
-    const now = Date.now();
-    if (callsForCurrentUrl >= MAX_CALLS_PER_PAGE_STEP) {
-      console.warn('[JDMatcher Circuit Breaker] Max 2 automatic Tier-2 calls reached for this page. Suppressed to protect wallet.');
-      return 0;
-    }
-    if (now - lastTier2CallTime < TIER2_COOLDOWN_MS) {
-      console.warn('[JDMatcher Circuit Breaker] 5-second cooldown active for automatic Tier-2 calls. Suppressed.');
-      return 0;
-    }
-    lastTier2CallTime = now;
-    callsForCurrentUrl++;
-  }
-
-  // Prepare payload for background script
-  const fieldsPayload = unresolvedFields.map(field => {
-    const labelInfo = field.element ? extractElementLabel(field.element) : { rawLabel: field.label, normalizedLabel: field.label };
-    return {
-      id: field.id,
-      elementIndex: field.elementIndex,
-      name: field.name,
-      label: labelInfo.rawLabel || field.label,
-      type: field.type,
-      options: field.options,
-      placeholder: field.placeholder,
-      isRequired: field.isRequired,
-      currentValue: field.currentValue,
-    };
-  });
-
-  const request: AutoFillResolveRequest = {
-    candidateId: profile.id,
-    jobTitle: jobContext?.jobTitle,
-    companyName: jobContext?.companyName,
-    jobDescription: jobContext?.jobDescription,
-    unresolvedFields: fieldsPayload,
+function toPayload(field: AutoFillExtractedField): AutoFillResolveFieldPayload {
+  const question = (field.question || field.label || field.name || '').slice(0, 1000);
+  return {
+    id: field.id.slice(0, 255),
+    elementIndex: field.elementIndex,
+    name: (field.name || '').slice(0, 255),
+    label: question,
+    question,
+    type: aiFieldType(field),
+    options: field.options && field.options.length ? field.options.slice(0, 300).map((o) => o.slice(0, 300)) : undefined,
+    placeholder: field.placeholder ? field.placeholder.slice(0, 500) : undefined,
+    isRequired: Boolean(field.isRequired),
+    currentValue: undefined,
+    maxLength: field.maxLength,
   };
+}
 
-  try {
-    const response: { success: boolean; data?: AutoFillResolveResponse; error?: string } = await new Promise(
-      (resolve) => {
-        chrome.runtime.sendMessage(
-          { type: 'AUTOFILL_RESOLVE', payload: request },
-          (res) => {
-            if (chrome.runtime.lastError) {
-              console.warn('JDMatcher: Background AUTOFILL_RESOLVE communication error:', chrome.runtime.lastError.message);
-              resolve({ success: false, error: chrome.runtime.lastError.message });
-            } else {
-              resolve(res || { success: false, error: 'Empty response from background' });
-            }
-          }
-        );
-      }
-    );
+function normalizeConfidence(c: unknown): number {
+  if (typeof c === 'number' && Number.isFinite(c)) return c > 1 ? c / 100 : c;
+  const s = String(c || '').toUpperCase();
+  if (s === 'HIGH') return 0.9;
+  if (s === 'MEDIUM') return 0.7;
+  if (s === 'LOW') return 0.4;
+  return 0.5;
+}
 
-    if (!response || !response.success || !response.data?.resolvedFields) {
-      console.warn('JDMatcher: Tier 2 AI resolution skipped or failed:', response?.error);
-      return 0;
+function sendToBackground(request: AutoFillResolveRequest): Promise<{ success: boolean; data?: AutoFillResolveResponse; error?: string }> {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'AUTOFILL_RESOLVE', payload: request }, (res) => {
+        if (chrome.runtime.lastError) {
+          resolve({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          resolve(res || { success: false, error: 'Empty response from background' });
+        }
+      });
+    } catch (err: any) {
+      resolve({ success: false, error: err?.message || 'Extension context unavailable' });
     }
+  });
+}
 
-    let filledCount = 0;
-    for (const resolved of response.data.resolvedFields) {
-      const field = unresolvedFields.find(f => f.elementIndex === resolved.elementIndex || f.id === resolved.fieldId);
-      if (!field || !field.element || !resolved.value) continue;
+/** Asks the AI to answer `fields`. Returns one answer per field it answered. */
+export async function requestAiAnswers(
+  fields: AutoFillExtractedField[],
+  profile: CandidateAutoFillProfile,
+  job: JobContext | null,
+  opts: { isManualTrigger: boolean; stepKey: string }
+): Promise<Tier2Outcome> {
+  if (fields.length === 0) return { answers: [] };
 
-      const success = await injectFieldValue(field.element, resolved.value, profile);
-      if (success) {
-        markElementAsAutoFilled(field.element, 'tier2', resolved.reasoning || 'Gemini 3.5 Flash');
-        filledCount++;
-      }
-    }
-
-    return filledCount;
-  } catch (err) {
-    console.error('JDMatcher: Failed to execute Tier 2 resolver:', err);
-    return 0;
+  if (!opts.isManualTrigger) {
+    const used = callsPerStep.get(opts.stepKey) || 0;
+    if (used >= MAX_AUTO_CALLS_PER_STEP) return { answers: [], skippedReason: 'AI limit reached for this page' };
+    if (callsThisPageLoad >= MAX_AUTO_CALLS_PER_PAGE_LOAD) return { answers: [], skippedReason: 'AI limit reached for this tab' };
   }
+  const wait = COOLDOWN_MS - (Date.now() - lastCallAt);
+  if (wait > 0) await sleep(wait);
+
+  const answers: Tier2Answer[] = [];
+  let firstError: string | undefined;
+  for (let i = 0; i < fields.length; i += MAX_FIELDS_PER_REQUEST) {
+    const batch = fields.slice(i, i + MAX_FIELDS_PER_REQUEST);
+    const request: AutoFillResolveRequest = {
+      candidateId: profile.id,
+      jobTitle: job?.jobTitle?.slice(0, 255),
+      companyName: job?.companyName?.slice(0, 255),
+      jobDescription: job?.jobDescription?.slice(0, 20000),
+      unresolvedFields: batch.map(toPayload),
+    };
+    lastCallAt = Date.now();
+    callsThisPageLoad++;
+    callsPerStep.set(opts.stepKey, (callsPerStep.get(opts.stepKey) || 0) + 1);
+
+    const response = await sendToBackground(request);
+    if (!response.success || !response.data?.resolvedFields) {
+      firstError = firstError || response.error || 'AI request failed';
+      continue;
+    }
+    for (const r of response.data.resolvedFields) {
+      const field = batch.find((f) => f.elementIndex === r.elementIndex) || batch.find((f) => f.id === r.fieldId);
+      if (!field) continue;
+      const confidence = normalizeConfidence(r.confidence);
+      const values = Array.isArray(r.values) ? r.values.map((v) => String(v)).filter(Boolean) : undefined;
+      answers.push({
+        fieldId: field.id,
+        elementIndex: field.elementIndex,
+        value: typeof r.value === 'string' ? r.value : r.value === undefined || r.value === null ? '' : String(r.value),
+        values,
+        confidence,
+        needsReview: Boolean(r.needsReview) || confidence < 0.7,
+        reasoning: r.reasoning,
+      });
+    }
+  }
+  return { answers, skippedReason: answers.length === 0 ? firstError : undefined };
 }

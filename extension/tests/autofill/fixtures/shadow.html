@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Careers - Shadow Corp</title><style> body { font-family: sans-serif; margin: 24px; } </style></head>
+<body>
+  <h1>Apply: Cloud Engineer</h1>
+  <!-- The application form lives inside an open shadow root (web components) -->
+  <app-form></app-form>
+  <!-- JDMatcher's own widget host: the engine must never touch anything in here -->
+  <div id="jdmatcher-extension-host"></div>
+  <script>
+    customElements.define(
+      'app-form',
+      class extends HTMLElement {
+        constructor() {
+          super();
+          const root = this.attachShadow({ mode: 'open' });
+          root.innerHTML = `
+            <style> label { display: block; margin-top: 10px; } input { width: 320px; padding: 6px; } </style>
+            <form onsubmit="return false">
+              <label for="fn">First name</label><input id="fn" name="fn">
+              <label for="ln">Last name</label><input id="ln" name="ln">
+              <label for="em">Email address</label><input id="em" type="email">
+              <label for="ph">Phone number</label><input id="ph" type="tel">
+              <p><button type="submit">Submit</button></p>
+            </form>`;
+        }
+      }
+    );
+    const widget = document.getElementById('jdmatcher-extension-host').attachShadow({ mode: 'open' });
+    widget.innerHTML = '<textarea id="jd-input"></textarea><input name="email" id="widget-email">';
+  </script>
+</body>
+</html>

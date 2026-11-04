@@ -162,6 +162,16 @@ jdmatcher-enterprise/
   - Evaluation breakdown (Total vs. Applied vs. Skipped).
   - High-contrast, theme-consistent hover tooltips.
 
+### 7. Hands-free Application Auto-Fill
+- **⚡ Fill Form** fills the application, clicks **Next / Continue / Save and Continue** on each page, and stops on the Review/Submit page. It **never clicks Submit**; the recruiter does.
+- **⏭ Auto Next** (next to Fill Form) turns page-by-page clicking on or off. With it off, Fill Form fills the current page only.
+- Answers come from, in order: the candidate profile, saved answers (including answers submitted on earlier applications), then the AI with the resume **and the job description** (from the page, or the JD evaluated in the widget).
+- The run **pauses** on a page when an answer needs a person: missing profile data, an AI answer it isn't sure of, or a profile conflict (e.g. "no sponsorship" on an H-1B profile). Those questions get a red dashed outline and are listed in a panel; fix them and press **Continue**, or click Next yourself.
+- It never guesses work authorization, sponsorship, salary/rate, or self-identification (gender, race, veteran, disability: "decline" unless the candidate chose otherwise). It leaves marketing opt-ins unticked and flags certifications for the recruiter.
+- LinkedIn Easy Apply: fields are filled, but page changes stay manual (LinkedIn does not allow automated clicking).
+- Fill these once per candidate in the portal so runs rarely pause: work authorization, sponsorship, relocation, notice period, desired salary/rate.
+- Tests: `cd extension && npx playwright install chromium && npm run test:autofill` (look-alike Workday, Greenhouse, Lever, LinkedIn and generic forms).
+
 ---
 
 ## 🛠️ Getting Started
@@ -264,6 +274,11 @@ npm run dev
 - `POST /:orgId/invoices` — Generate an official monthly bill (Super Admin only).
 - `GET /:orgId/invoices/:invoiceId` — Download official invoice payload.
 - `PATCH /:orgId/mark-paid` — Clear outstanding balance and mark invoice paid.
+
+### Extension Auto-Fill (`/api/v1/extension`)
+- `GET /candidate-profile/:id` — Auto-fill profile for the selected candidate (unset screening answers are listed in `screening.assumed`).
+- `POST /autofill-resolve` — AI answers for questions the profile and saved answers can't cover (uses resume + job description; may return `needsReview`).
+- `POST /autofill-confirm` — Saves the screening answers the recruiter actually submitted, for reuse on the next application.
 
 ### Bench Candidates (`/api/candidates`)
 - `GET /` — List agency bench consultants.

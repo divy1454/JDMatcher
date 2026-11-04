@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Job Application for Site Reliability Engineer at Acme</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+    .field { margin: 14px 0; position: relative; }
+    label { display: block; margin-bottom: 4px; }
+    input[type=text], input[type=email] { width: 100%; padding: 6px; }
+    .select__control { display: flex; border: 1px solid #999; padding: 4px; cursor: pointer; min-height: 30px; }
+    .select__value-container { flex: 1; position: relative; }
+    .select__placeholder, .select__single-value { position: absolute; top: 4px; left: 2px; pointer-events: none; }
+    .select__placeholder { color: #888; }
+    .select__input { border: 0; outline: 0; width: 100%; background: transparent; }
+    .select__menu { position: absolute; left: 0; right: 0; background: #fff; border: 1px solid #999; z-index: 5; }
+    .select__option { padding: 5px 8px; cursor: pointer; }
+    .hidden-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+    #loc-list { list-style: none; margin: 0; padding: 0; border: 1px solid #999; position: absolute; background: #fff; width: 100%; z-index: 5; }
+    #loc-list li { padding: 5px 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="content">
+    <h1 class="app-title">Site Reliability Engineer</h1>
+    <div class="job__description">
+      <p>Acme is looking for a Site Reliability Engineer to keep our Kubernetes platform fast and reliable. You will
+        build Terraform modules, improve our CI/CD and observability stack, and join a weekly on-call rotation. You have
+        3+ years running Kubernetes in production, strong Linux skills, and experience with Prometheus and Grafana.
+        Hybrid in Austin, Texas. Visa sponsorship available.</p>
+    </div>
+  </div>
+
+  <form id="application_form" onsubmit="event.preventDefault(); window.__submitted = true;">
+    <div class="field"><label for="first_name">First Name*</label><input type="text" id="first_name" name="job_application[first_name]" aria-required="true"></div>
+    <div class="field"><label for="last_name">Last Name*</label><input type="text" id="last_name" name="job_application[last_name]" aria-required="true"></div>
+    <div class="field"><label for="email">Email*</label><input type="email" id="email" name="job_application[email]" aria-required="true"></div>
+    <div class="field"><label for="phone">Phone</label><input type="text" id="phone" name="job_application[phone]"></div>
+
+    <div class="field">
+      <label for="loc">Location (City)</label>
+      <input type="text" id="loc" role="combobox" aria-autocomplete="list" aria-controls="loc-list" aria-expanded="false" autocomplete="off">
+      <ul id="loc-list" role="listbox" hidden></ul>
+    </div>
+
+    <div class="field">
+      <label id="resume-label">Resume/CV*</label>
+      <button type="button" onclick="document.getElementById('resume').click()">Attach</button>
+      <input type="file" id="resume" name="resume" class="hidden-file" aria-labelledby="resume-label">
+    </div>
+
+    <div class="field"><label for="linkedin">LinkedIn Profile</label><input type="text" id="linkedin" name="job_application[answers_attributes][0][text_value]"></div>
+
+    <div class="field select" data-select="q_auth" data-options="Yes|No">
+      <label id="q_auth-label" for="q_auth">Are you legally authorized to work in the United States?*</label>
+    </div>
+    <div class="field select" data-select="q_sponsor" data-options="Yes|No">
+      <label id="q_sponsor-label" for="q_sponsor">Will you now or in the future require sponsorship to work in the US?*</label>
+    </div>
+    <div class="field select" data-select="q_source" data-options="Company Website|Indeed|LinkedIn|Referral|Other">
+      <label id="q_source-label" for="q_source">How did you hear about this job?</label>
+    </div>
+    <div class="field select" data-select="q_gender" data-options="Male|Female|Decline To Self Identify">
+      <label id="q_gender-label" for="q_gender">Gender</label>
+    </div>
+
+    <button type="submit" id="submit">Submit Application</button>
+  </form>
+
+  <script>
+    // Minimal React-Select look-alike: control > value container > input[role=combobox], menu of .select__option
+    document.querySelectorAll('[data-select]').forEach((field) => {
+      const id = field.dataset.select;
+      const options = field.dataset.options.split('|');
+      const container = document.createElement('div');
+      container.className = 'select__container';
+      container.innerHTML =
+        `<div class="select__control"><div class="select__value-container"><div class="select__placeholder">Select...</div>` +
+        `<input class="select__input" id="${id}" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-labelledby="${id}-label" autocomplete="off"></div>` +
+        `<div class="select__indicators">&#9662;</div></div><input type="hidden" name="${id}">`;
+      field.appendChild(container);
+      const control = container.querySelector('.select__control');
+      const input = container.querySelector('.select__input');
+      const hidden = container.querySelector('input[type=hidden]');
+      let menu = null;
+      const close = () => {
+        if (menu) menu.remove();
+        menu = null;
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-controls');
+      };
+      const open = () => {
+        close();
+        const q = input.value.toLowerCase();
+        const shown = options.filter((o) => o.toLowerCase().includes(q));
+        menu = document.createElement('div');
+        menu.className = 'select__menu';
+        menu.innerHTML = `<div class="select__menu-list" role="listbox" id="${id}-listbox">${shown
+          .map((o, i) => `<div class="select__option" role="option" id="${id}-option-${i}">${o}</div>`)
+          .join('')}</div>`;
+        container.appendChild(menu);
+        input.setAttribute('aria-expanded', 'true');
+        input.setAttribute('aria-controls', `${id}-listbox`);
+        menu.addEventListener('click', (e) => {
+          const opt = e.target.closest('.select__option');
+          if (!opt) return;
+          const value = opt.textContent;
+          hidden.value = value;
+          const vc = container.querySelector('.select__value-container');
+          vc.querySelector('.select__placeholder, .select__single-value')?.remove();
+          const single = document.createElement('div');
+          single.className = 'select__single-value';
+          single.textContent = value;
+          vc.insertBefore(single, input);
+          input.value = '';
+          close();
+        });
+      };
+      control.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        input.focus();
+        menu ? close() : open();
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' && !menu) open();
+        if (e.key === 'Escape') close();
+      });
+      input.addEventListener('input', () => open());
+    });
+
+    // Location typeahead: suggestions arrive after a delay, like a server lookup
+    const cities = ['Austin, Texas, United States', 'Austin, Minnesota, United States', 'Boston, Massachusetts, United States'];
+    const loc = document.getElementById('loc');
+    const list = document.getElementById('loc-list');
+    let timer = null;
+    loc.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = loc.value.toLowerCase().trim();
+      timer = setTimeout(() => {
+        const hits = q.length >= 2 ? cities.filter((c) => c.toLowerCase().includes(q)) : [];
+        list.innerHTML = hits.map((c) => `<li role="option">${c}</li>`).join('');
+        list.hidden = hits.length === 0;
+        loc.setAttribute('aria-expanded', String(hits.length > 0));
+      }, 300);
+    });
+    list.addEventListener('click', (e) => {
+      const li = e.target.closest('li');
+      if (!li) return;
+      loc.value = li.textContent;
+      list.hidden = true;
+      loc.setAttribute('aria-expanded', 'false');
+    });
+    document.getElementById('submit').addEventListener('click', () => { window.__submitClicked = (window.__submitClicked || 0) + 1; });
+  </script>
+</body>
+</html>

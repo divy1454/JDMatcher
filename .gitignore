@@ -37,3 +37,6 @@ yarn-error.log*
 
 # Cloned External Repositories
 JobSpy/
+
+# Auto-fill test build output and screenshots
+extension/tests/autofill/.tmp/

@@ -8,9 +8,9 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
+      // content.js (the floating widget) is built separately as one file: see vite.content.config.ts
       input: {
         popup: resolve(__dirname, 'popup.html'),
-        content: resolve(__dirname, 'src/content/index.tsx'),
         background: resolve(__dirname, 'src/background/index.ts'),
         'content-autofill': resolve(__dirname, 'src/content-autofill/index.ts'),
       },

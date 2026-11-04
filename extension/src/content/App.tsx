@@ -49,18 +49,37 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   // Universal Auto-Fill Engine State
   const [autofillEnabled, setAutofillEnabled] = useState<boolean>(true);
+  // Hands-free mode: Fill Form also clicks Next/Continue until the Review/Submit page
+  const [autoAdvanceEnabled, setAutoAdvanceEnabled] = useState<boolean>(true);
 
   useEffect(() => {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['autofillEnabled'], (res) => {
+        chrome.storage.local.get(['autofillEnabled', 'autofillAutoAdvance'], (res) => {
           if (res?.autofillEnabled !== undefined) {
             setAutofillEnabled(Boolean(res.autofillEnabled));
+          }
+          if (res?.autofillAutoAdvance !== undefined) {
+            setAutoAdvanceEnabled(Boolean(res.autofillAutoAdvance));
           }
         });
       }
     } catch (_e) {}
   }, []);
+
+  const handleToggleAutoAdvance = () => {
+    const next = !autoAdvanceEnabled;
+    setAutoAdvanceEnabled(next);
+    try {
+      chrome.storage.local.set({ autofillAutoAdvance: next });
+    } catch (_e) {}
+    showToast(
+      next
+        ? '⏭ Auto Next on: Fill Form moves through every page and stops before Submit'
+        : 'Auto Next off: Fill Form fills the current page only',
+      'info'
+    );
+  };
 
   const handleToggleAutofill = () => {
     const next = !autofillEnabled;
@@ -80,7 +99,12 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
 
   const handleTriggerManualAutofill = () => {
     try {
-      showToast('⚡ Scanning and auto-filling form across all frames...', 'info');
+      showToast(
+        autoAdvanceEnabled
+          ? '⚡ Filling the form page by page. It stops before Submit.'
+          : '⚡ Scanning and auto-filling form across all frames...',
+        'info'
+      );
       chrome.runtime.sendMessage({ type: 'TRIGGER_MANUAL_AUTOFILL' }, (res) => {
         if (res?.stats) {
           const filled = (res.stats.tier1Filled || 0) + (res.stats.savedFilled || 0) + (res.stats.tier2Filled || 0);
@@ -1051,6 +1075,30 @@ export const App: React.FC<AppProps> = ({ onClose }) => {
                     >
                       <span>⚡</span>
                       <span>Fill Form</span>
+                    </button>
+                  )}
+                  {autofillEnabled && (
+                    <button
+                      type="button"
+                      onClick={handleToggleAutoAdvance}
+                      aria-pressed={autoAdvanceEnabled}
+                      title={
+                        autoAdvanceEnabled
+                          ? 'Auto Next is on: Fill Form clicks Next on each page and stops before Submit (click to turn off)'
+                          : 'Auto Next is off: Fill Form fills only the current page (click to turn on)'
+                      }
+                      style={{
+                        background: autoAdvanceEnabled ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
+                        border: autoAdvanceEnabled ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(148, 163, 184, 0.35)',
+                        color: autoAdvanceEnabled ? '#10b981' : '#94a3b8',
+                        borderRadius: '4px',
+                        padding: '2px 7px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ⏭ Auto Next
                     </button>
                   )}
                   <button

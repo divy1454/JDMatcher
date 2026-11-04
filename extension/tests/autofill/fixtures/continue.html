@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Quick Apply - Oneshot</title>
+  <style> body { font-family: sans-serif; max-width: 640px; margin: 24px auto; } label { display: block; margin-top: 10px; } input { width: 100%; padding: 6px; } </style>
+</head>
+<body>
+  <h1>Quick apply</h1>
+  <!-- One page only: the "Continue" button here actually submits the application -->
+  <form onsubmit="event.preventDefault(); window.__submitted = true;">
+    <label for="fn">First name</label><input id="fn" name="first_name">
+    <label for="ln">Last name</label><input id="ln" name="last_name">
+    <label for="em">Email</label><input id="em" name="email" type="email">
+    <p><button type="submit" id="go">Continue</button></p>
+  </form>
+  <script>
+    document.getElementById('go').addEventListener('click', () => { window.__continueClicked = (window.__continueClicked || 0) + 1; });
+  </script>
+</body>
+</html>
