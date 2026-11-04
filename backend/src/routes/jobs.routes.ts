@@ -13,6 +13,41 @@ import {
 import { db } from '../db/index.js';
 import { matchedJds, candidates, resumeAnalyses } from '../db/schema.js';
 import { eq, and, desc } from 'drizzle-orm';
+import { env } from '../env.js';
+import {
+  searchJobsForCandidate,
+  toSearchCandidate,
+  defaultWatchlist,
+  companiesFromLinks,
+  mergeWatchlists,
+  careersPage,
+  INDUSTRY_NAMES,
+} from '../services/jobFinder/index.js';
+
+// Job finder (career sites + optional portal APIs): one search for one bench candidate
+const findJobsSchema = z.object({
+  candidateId: z.string().uuid('Valid candidateId is required'),
+  postedWithinDays: z.union([z.literal(1), z.literal(3), z.literal(7), z.literal(30)]).optional().default(1),
+  excludeCitizenship: z.boolean().optional().default(true),
+  excludeClearance: z.boolean().optional().default(true),
+  industryFirst: z.boolean().optional().default(true),
+  contractOnly: z.boolean().optional().default(false),
+  remoteOnly: z.boolean().optional().default(false),
+  hideBlocked: z.boolean().optional().default(false),
+  c2cOnly: z.boolean().optional().default(true),
+  sortBy: z.enum(['newest', 'best']).optional().default('newest'),
+  titles: z.array(z.string().trim().min(2).max(80)).max(4).optional(),
+  industry: z.string().trim().max(60).optional(),
+  careerSites: z.array(z.string().trim().max(300)).max(60).optional(),
+  includeDefaultSites: z.boolean().optional().default(true),
+});
+
+const jobFinderConfig = () => ({
+  JSEARCH_API_KEY: env.JSEARCH_API_KEY || undefined,
+  JSEARCH_PROVIDER: env.JSEARCH_PROVIDER || undefined,
+  ADZUNA_APP_ID: env.ADZUNA_APP_ID || undefined,
+  ADZUNA_APP_KEY: env.ADZUNA_APP_KEY || undefined,
+});
 
 const searchJobsSchema = z.object({
   searchTerm: z.string().min(1, 'Search term is required').max(150),
@@ -275,6 +310,114 @@ export const jobsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         total: scoredJobs.length,
         jobs: scoredJobs,
       });
+    }
+  );
+
+  // GET /api/jobs/finder-config - What the job finder searches (default career sites, portal keys on/off)
+  fastify.get(
+    '/finder-config',
+    {
+      preHandler: [authGuard],
+    },
+    async (request, reply) => {
+      const config = jobFinderConfig();
+      return reply.send({
+        portals: { jsearch: Boolean(config.JSEARCH_API_KEY), adzuna: Boolean(config.ADZUNA_APP_ID && config.ADZUNA_APP_KEY) },
+        defaultSites: defaultWatchlist(env.JOB_FINDER_WATCHLIST).map((c) => ({ name: c.name, ats: c.ats, url: careersPage(c), industry: c.industry || null })),
+        industries: INDUSTRY_NAMES,
+        postedWithinOptions: [1, 3, 7, 30],
+      });
+    }
+  );
+
+  // POST /api/jobs/find - Newest matching jobs for one bench candidate (career sites + portals with keys)
+  fastify.post(
+    '/find',
+    {
+      config: {
+        rateLimit: {
+          max: 12,
+          timeWindow: '1 minute',
+        },
+      },
+      preHandler: [authGuard, deviceGuard, depositGuard],
+    },
+    async (request, reply) => {
+      const parseResult = findJobsSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: 'INVALID_PAYLOAD',
+          details: parseResult.error.issues,
+        });
+      }
+      const body = parseResult.data;
+      const user = request.user!;
+
+      const [candidate] = await db
+        .select()
+        .from(candidates)
+        .where(and(eq(candidates.id, body.candidateId), eq(candidates.organizationId, user.organizationId!)))
+        .limit(1);
+      if (!candidate || !candidate.isActive) {
+        return reply.status(404).send({
+          error: 'CANDIDATE_NOT_FOUND',
+          message: 'Active bench candidate not found',
+        });
+      }
+
+      const [latestAnalysis] = await db
+        .select({ industriesAndDomains: resumeAnalyses.industriesAndDomains, roleTiers: resumeAnalyses.roleTiers })
+        .from(resumeAnalyses)
+        .where(and(eq(resumeAnalyses.candidateId, candidate.id), eq(resumeAnalyses.organizationId, user.organizationId!)))
+        .orderBy(desc(resumeAnalyses.createdAt))
+        .limit(1);
+
+      const { candidate: searchCandidate, industrySource } = toSearchCandidate(candidate, latestAnalysis || null, {
+        titles: body.titles,
+        industry: body.industry,
+        c2cOnly: body.c2cOnly,
+      });
+      if (!searchCandidate.titles.length) {
+        return reply.status(400).send({ error: 'NO_TITLE', message: 'Candidate has no title to search for' });
+      }
+
+      const own = companiesFromLinks(body.careerSites || []);
+      const watchlist = mergeWatchlists(body.includeDefaultSites ? defaultWatchlist(env.JOB_FINDER_WATCHLIST) : [], own.companies);
+
+      try {
+        const result = await searchJobsForCandidate(
+          searchCandidate,
+          watchlist,
+          {
+            postedWithinDays: body.postedWithinDays,
+            excludeCitizenship: body.excludeCitizenship,
+            excludeClearance: body.excludeClearance,
+            industryFirst: body.industryFirst,
+            contractOnly: body.contractOnly,
+            remoteOnly: body.remoteOnly,
+            hideBlocked: body.hideBlocked,
+            sortBy: body.sortBy,
+          },
+          jobFinderConfig()
+        );
+        request.log.info(
+          { candidateId: candidate.id, total: result.total, tookMs: result.tookMs, sources: result.sources.map((s) => `${s.source}:${s.found}${s.error ? '!' : ''}`) },
+          '[JobFinder] search done'
+        );
+        return reply.send({
+          success: true,
+          candidateId: candidate.id,
+          industrySource,
+          rejectedCareerSites: own.rejected,
+          ...result,
+        });
+      } catch (err: any) {
+        request.log.error(err, '[JobFinder] search failed');
+        return reply.status(500).send({
+          error: 'JOB_FINDER_ERROR',
+          message: err?.message || 'Job search failed',
+        });
+      }
     }
   );
 
