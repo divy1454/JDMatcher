@@ -22,17 +22,10 @@ import {
 import { extractQuestionForElement, extractGroupQuestion, extractOptionLabel } from './label-extractor';
 import { isPlaceholderOption } from './option-matcher';
 import { cleanLabel } from './text-utils';
+import { knownAtsSite } from './ats-sites';
 
-export type SupportedATS =
-  | 'greenhouse'
-  | 'lever'
-  | 'workday'
-  | 'linkedin'
-  | 'dice'
-  | 'icims'
-  | 'ashby'
-  | 'smartrecruiters'
-  | 'generic';
+/** The ATS behind the form ("greenhouse", "workday", "jobdiva", ...), or 'generic' for any other site. */
+export type SupportedATS = string;
 
 export interface FormDetectionResult {
   isJobApplication: boolean;
@@ -41,32 +34,26 @@ export interface FormDetectionResult {
   fields: AutoFillExtractedField[];
 }
 
+export interface ScanOptions {
+  /**
+   * Accept a page with only one or two questions. Used when the recruiter pressed Fill Form, and on
+   * later pages of a run, where a short page ("immigration status" + "anything else?") is still the form.
+   */
+  lenient?: boolean;
+}
+
 /** Identifies the ATS platform hosting the application form. */
 export function detectPlatform(): SupportedATS {
   const url = window.location.href.toLowerCase();
-  const host = window.location.hostname.toLowerCase();
 
-  if (host.includes('greenhouse.io') || url.includes('gh_jid') || document.querySelector('#application_form, [data-mapped-application-form]')) {
-    return 'greenhouse';
-  }
-  if (host.includes('lever.co') || document.querySelector('.application-form, .postings-btn-wrapper')) {
-    return 'lever';
-  }
-  if (host.includes('workday.com') || host.includes('myworkdayjobs.com') || document.querySelector('[data-automation-id="workdayApplication"], [data-automation-id="applicationPage"]')) {
-    return 'workday';
-  }
-  if (host.includes('linkedin.com') || document.querySelector('.jobs-easy-apply-modal, .jobs-apply-form')) {
-    return 'linkedin';
-  }
-  if (host.includes('dice.com') || document.querySelector('[data-cy="apply-button"], #applyJob')) {
-    return 'dice';
-  }
-  if (host.includes('icims.com') || document.querySelector('.iCIMS_JobsTable, .iCIMS_JobContent')) {
-    return 'icims';
-  }
-  if (host.includes('ashbyhq.com')) return 'ashby';
-  if (host.includes('smartrecruiters.com')) return 'smartrecruiters';
-  return 'generic';
+  // Forms embedded on company career sites carry their ATS markup with them
+  if (url.includes('gh_jid') || document.querySelector('#application_form, [data-mapped-application-form]')) return 'greenhouse';
+  if (document.querySelector('.application-form, .postings-btn-wrapper')) return 'lever';
+  if (document.querySelector('[data-automation-id="workdayApplication"], [data-automation-id="applicationPage"]')) return 'workday';
+  if (document.querySelector('.jobs-easy-apply-modal, .jobs-apply-form')) return 'linkedin';
+  if (document.querySelector('[data-cy="apply-button"], #applyJob')) return 'dice';
+  if (document.querySelector('.iCIMS_JobsTable, .iCIMS_JobContent')) return 'icims';
+  return knownAtsSite() || 'generic';
 }
 
 /**
@@ -253,7 +240,7 @@ const CANDIDATE_SELECTOR = [
 ].join(', ');
 
 /** Scans the current document/frame (including open shadow roots) for application questions. */
-export function scanApplicationForm(root: Document | HTMLElement = document): FormDetectionResult {
+export function scanApplicationForm(root: Document | HTMLElement = document, opts: ScanOptions = {}): FormDetectionResult {
   const platform = detectPlatform();
   const roots: Array<SearchRoot | HTMLElement> = root instanceof Document ? collectSearchRoots(root) : [root];
   const fields: AutoFillExtractedField[] = [];
@@ -357,7 +344,7 @@ export function scanApplicationForm(root: Document | HTMLElement = document): Fo
 
   const hasFileInput = fields.some((f) => f.type === 'file');
   const hasAppSignals = fields.length >= 3 || platform !== 'generic';
-  const isJobApplication = fields.length > 0 && (hasFileInput || hasAppSignals);
+  const isJobApplication = fields.length > 0 && (Boolean(opts.lenient) || hasFileInput || hasAppSignals);
 
   return { isJobApplication, platform, formElement, fields };
 }

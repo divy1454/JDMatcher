@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <title>Apply for job post</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
+    .field { margin-bottom: 14px; position: relative; }
+    .q { margin: 0 0 4px; font-weight: 600; }
+    .row { display: flex; gap: 6px; }
+    input { width: 100%; padding: 6px; box-sizing: border-box; }
+    #cc { width: 110px; flex: none; text-align: left; padding: 6px; background: #fff; border: 1px solid #999; }
+    [data-list] { position: absolute; background: #fff; border: 1px solid #999; list-style: none; margin: 0; padding: 0; z-index: 10; }
+    [data-list] li { padding: 5px 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <!--
+    Mimics the phone question on a Rippling application served in en-GB: the country-code picker is a
+    dropdown button the site pre-sets to "🇬🇧 +44" from the browser language, next to the number box.
+    Picking another country redraws the number box empty (a new element), as React phone inputs do.
+  -->
+  <main>
+    <form id="app" onsubmit="return false">
+      <div class="field"><label for="first">First name *</label><input id="first" required></div>
+      <div class="field"><label for="last">Last name *</label><input id="last" required></div>
+      <div class="field"><label for="email">Email *</label><input id="email" type="email" required></div>
+      <div class="field" id="phone-field">
+        <p class="q">Phone number <span aria-hidden="true">*</span></p>
+        <div class="row">
+          <button type="button" id="cc" aria-haspopup="listbox" aria-label="Select">🇬🇧 +44</button>
+          <span id="phone-slot" style="flex:1"></span>
+        </div>
+      </div>
+      <div class="field"><label for="li">LinkedIn profile</label><input id="li"></div>
+      <div id="extra"></div>
+      <button type="button" id="submit">Submit application</button>
+    </form>
+  </main>
+  <script>
+    const CODES = ['🇺🇸 +1', '🇨🇦 +1', '🇬🇧 +44', '🇮🇳 +91'];
+    window.__phoneBoxes = 0;
+    function newPhoneBox() {
+      const input = document.createElement('input');
+      input.id = 'phone';
+      input.type = 'tel';
+      input.required = true;
+      input.setAttribute('aria-label', 'Phone number');
+      window.__phoneBoxes++;
+      const slot = document.getElementById('phone-slot');
+      slot.innerHTML = '';
+      slot.appendChild(input);
+    }
+    newPhoneBox();
+
+    const cc = document.getElementById('cc');
+    let list = null;
+    const closeList = () => { if (list) list.remove(); list = null; };
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('#cc')) {
+        if (list) return closeList();
+        list = document.createElement('ul');
+        list.setAttribute('role', 'listbox');
+        list.setAttribute('data-list', '');
+        const r = cc.getBoundingClientRect();
+        list.style.left = r.left + window.scrollX + 'px';
+        list.style.top = r.bottom + window.scrollY + 'px';
+        list.innerHTML = CODES.map((c) => `<li role="option">${c}</li>`).join('');
+        document.body.appendChild(list);
+        return;
+      }
+      const opt = e.target.closest('[role="option"]');
+      if (opt && list && list.contains(opt)) {
+        const changed = cc.textContent !== opt.textContent;
+        cc.textContent = opt.textContent;
+        closeList();
+        if (changed) newPhoneBox();
+        return;
+      }
+      if (list && !e.target.closest('[data-list]')) closeList();
+    });
+    document.getElementById('submit').addEventListener('click', () => { window.__submitClicked = (window.__submitClicked || 0) + 1; });
+  </script>
+</body>
+</html>

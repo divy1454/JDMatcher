@@ -10,10 +10,11 @@ import {
   CandidateAutoFillProfile,
   AutoFillRunStats,
   AutoFillExtractedField,
+  AutoFillFieldResult,
   AutoFillReviewItem,
 } from '../content/types';
 import { scanApplicationForm, isFieldFilled, readFieldValue } from './form-detector';
-import { resolveTier1Field, Tier1Context } from './tier1-resolver';
+import { resolveTier1Field, Tier1Context, isDialCodeControl, profileDialCode } from './tier1-resolver';
 import { resolveSavedResponse } from './saved-response-matcher';
 import { requestAiAnswers, resetTier2CircuitBreaker } from './tier2-resolver';
 import { injectField, readLazyOptions, answerFitsOptions } from './dom-injector';
@@ -34,11 +35,14 @@ import {
   showAutoFillInfoToast,
   dismissAutoFillToast,
 } from './visual-feedback';
-import { markElementNeedsReview, clearReviewMark, showReviewPanel, dismissReviewPanel, triggerFrameContinue } from './review-panel';
+import { markElementNeedsReview, clearReviewMark, showReviewPanel, dismissReviewPanel, triggerFrameContinue, shownPanelMode } from './review-panel';
 import { startFormObserver, isElementAlreadyProcessed, markElementProcessed } from './observer';
 import { trackForLearning, snapshotTrackedAnswers, installAnswerRecorder } from './answer-recorder';
-import { sleep, waitFor, waitForDomQuiet } from './dom-utils';
+import { sleep, waitFor, waitForDomQuiet, isRendered } from './dom-utils';
 import { normalizeText } from './text-utils';
+import { isDeclineText, dialCodeOf } from './option-matcher';
+import { isRecognizedJobPage } from './ats-sites';
+import { installUserActivityTracker, isUserEdited, msSinceUserActivity, userTypingTarget, deepActiveElement } from './user-activity';
 import './content-autofill.css';
 
 console.log('[JDMatcher Enterprise] Auto-Fill Engine initialized in frame:', window.self === window.top ? 'top' : 'iframe');
@@ -61,34 +65,33 @@ const MAX_STEPS = 15;
 const SESSION_KEY = 'jdm_auto_session_v1';
 const SESSION_MAX_AGE_MS = 45 * 60 * 1000;
 
-const RECOGNIZED_ATS_DOMAINS = [
-  'linkedin.com',
-  'dice.com',
-  'greenhouse.io',
-  'lever.co',
-  'myworkdayjobs.com',
-  'workday.com',
-  'icims.com',
-  'ashbyhq.com',
-  'smartrecruiters.com',
-  'bamboohr.com',
-  'monster.com',
-  'indeed.com',
-];
+/** Automatic fills wait until the recruiter has not typed or clicked for this long. */
+const USER_IDLE_MS = 1500;
 
-/** Validates if current page is on an established ATS or job board domain/path. */
+/** Pages that fill on load: known ATS (see ats-sites.ts), job boards, and career/apply pages. */
 export function isRecognizedJobBoardOrAts(): boolean {
   try {
-    const host = window.location.hostname.toLowerCase();
-    const path = window.location.pathname.toLowerCase();
-    const href = window.location.href.toLowerCase();
-    const matchesDomain = RECOGNIZED_ATS_DOMAINS.some((d) => host === d || host.endsWith('.' + d));
-    const matchesPath =
-      path.includes('/apply') || path.includes('/careers') || path.includes('/jobs') || href.includes('gh_jid=') || href.includes('lever.co/');
-    return matchesDomain || matchesPath;
+    return isRecognizedJobPage() || Boolean(document.querySelector('.jobs-easy-apply-modal, .jobs-apply-form'));
   } catch {
     return false;
   }
+}
+
+/** A large frame on the page: an embedded application form probably lives in it, not in this page. */
+function hasLargeFrame(): boolean {
+  return Array.from(document.querySelectorAll('iframe')).some((f) => {
+    const r = f.getBoundingClientRect();
+    return r.width >= 300 && r.height >= 200 && isRendered(f);
+  });
+}
+
+/**
+ * Fill Form on a page with only one or two questions (a later step of a multi-page form, like JobDiva's
+ * "immigration status" page) still fills them. Only in the top page, and only when no big frame on the
+ * page could be holding the real form; frames still need the usual signs of an application form.
+ */
+function manualFillAcceptsShortPage(): boolean {
+  return window.self === window.top && !hasLargeFrame();
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +129,12 @@ interface StoredSession {
 
 /** Site plus the job id in the URL (Workday "_R123", Greenhouse/iCIMS numbers, Lever UUIDs). */
 function currentJobKey(): string {
+  // ADP and others carry the company id in the URL too; the job id parameter says which job this is
+  const params = new URLSearchParams(window.location.search);
+  for (const key of ['jobId', 'jobid', 'job_id', 'gh_jid', 'reqId', 'requisitionId']) {
+    const v = params.get(key);
+    if (v) return `${window.location.hostname}|${v}`;
+  }
   const href = `${window.location.pathname}${window.location.search}`;
   const id = href.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[_-]J?R-?\d{3,}|\d{4,}/i);
   return `${window.location.hostname}|${id ? id[0] : window.location.pathname}`;
@@ -247,14 +256,32 @@ function readyItems(flagged: AutoFillReviewItem[]): AutoFillReviewItem[] {
   return flagged.concat(readAiLog().filter((i) => !seen.has(i.question)));
 }
 
-/** A radio group whose checked option is just the page's default still gets our answer. */
+/**
+ * A radio group whose checked option is just the page's default still gets our answer, and so does
+ * a phone box holding only the country code the site typed in ("+44 ").
+ */
 function isAnswered(field: AutoFillExtractedField): boolean {
   if (field.type === 'radio_group' && !field.isAria) {
     const checked = (field.optionElements || []).find((o) => (o.element as HTMLInputElement).checked);
     if (checked && (checked.element as HTMLInputElement).defaultChecked) return false;
   }
   if (field.type === 'checkbox') return Boolean(readFieldValue(field));
+  if (
+    field.type === 'text' &&
+    (field.inputType === 'tel' || /\b(phone|mobile|cell|telephone)\b/.test(normalizeText(field.question || field.label))) &&
+    /^\+\s?\d{1,4}[\s-]*$/.test(readFieldValue(field).trim())
+  ) {
+    return false;
+  }
   return isFieldFilled(field);
+}
+
+/** A country-code picker the site pre-set to another country's code (+44 on an en-GB page). */
+function hasWrongDialCode(field: AutoFillExtractedField, profile: CandidateAutoFillProfile): boolean {
+  if (!isDialCodeControl(field)) return false;
+  const shown = dialCodeOf(readFieldValue(field));
+  const wanted = profileDialCode(profile);
+  return Boolean(shown && wanted && shown !== wanted);
 }
 
 function withOptions(field: AutoFillExtractedField, options?: string[]): AutoFillExtractedField {
@@ -278,36 +305,114 @@ interface StepResult {
 // Filling one page
 // ---------------------------------------------------------------------------
 
-async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): Promise<StepResult | null> {
+interface StepOptions {
+  /** Accept a page with only one or two questions (see ScanOptions.lenient). */
+  lenient?: boolean;
+  /** A fill nobody asked for (page load, new questions appearing): stay out of the recruiter's way. */
+  automatic?: boolean;
+}
+
+async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean, opts: StepOptions = {}): Promise<StepResult | null> {
   const profile = currentProfile;
   if (!profile) return null;
   const stats = emptyStats();
   pruneReviewItems();
   newFlagsThisRun = 0;
 
-  const scan = scanApplicationForm(document);
+  let scan = scanApplicationForm(document, { lenient: opts.lenient });
   if (!scan.isJobApplication || scan.fields.length === 0) {
     return { stats, stepKey: computeStepKey([]), flagged: [], requiredMissing: [], fieldsFound: 0, newFlags: 0 };
+  }
+  const job = await getJobContext(profile.id);
+
+  let attempted = 0;
+  const tried = new Set<HTMLElement>();
+  for (let pass = 0; pass < 3; pass++) {
+    if (pass > 0) {
+      // Answers can reveal follow-up questions, and some sites redraw a field after a change (a new
+      // phone box once the country code is picked); look again and fill those too
+      await sleep(300);
+      scan = scanApplicationForm(document, { lenient: true });
+    }
+    // Never touch what the recruiter changed by hand, or the box they are typing in right now
+    const typingIn = opts.automatic ? userTypingTarget() : null;
+    const todo = scan.fields.filter(
+      (f) =>
+        f.element &&
+        f.element.isConnected &&
+        !tried.has(f.element) &&
+        !isElementAlreadyProcessed(f.element) &&
+        !isUserEdited(f) &&
+        f.element !== typingIn &&
+        (!isAnswered(f) || hasWrongDialCode(f, profile))
+    );
+    if (todo.length === 0) break;
+    if (pass === 0 && showToasts) showAutoFillStartingToast(profile.fullName);
+    todo.forEach((f) => tried.add(f.element!));
+    attempted += todo.length;
+    const ctx: Tier1Context = {
+      fileFieldCount: scan.fields.filter((f) => f.type === 'file').length,
+      companyName: job.companyName,
+      hasSeparateCountryCode: scan.fields.some(
+        (f) => /\b(country|phone|dial(ing)?|calling) code\b/i.test(f.question || '') || isDialCodeControl(f)
+      ),
+    };
+    await fillFields(todo, profile, job, ctx, stats, isManualTrigger, computeStepKey(scan.fields));
   }
   const stepKey = computeStepKey(scan.fields);
   stats.totalFields = scan.fields.length;
 
-  const todo = scan.fields.filter((f) => f.element && !isElementAlreadyProcessed(f.element) && !isAnswered(f));
-  if (todo.length > 0 && showToasts) showAutoFillStartingToast(profile.fullName);
+  // --- Required fields still empty ---
+  const requiredMissing: AutoFillReviewItem[] = [];
+  for (const field of scan.fields) {
+    if (!field.isRequired || !field.element || !field.element.isConnected) continue;
+    // A box the recruiter is in the middle of changing is theirs to finish; no flag pops up for it
+    if (opts.automatic && isUserEdited(field)) continue;
+    if (field.type === 'file' && !readFieldValue(field) && field.element.getAttribute('data-jdm-file-injected') !== 'true') {
+      if (!reviewItems.has(anchorOf(field))) flag(field, 'Required upload is missing.');
+      requiredMissing.push(reviewItems.get(anchorOf(field))!);
+      continue;
+    }
+    if (field.type !== 'file' && !readFieldValue(field)) {
+      if (!reviewItems.has(anchorOf(field))) flag(field, 'Required and still empty.');
+      requiredMissing.push(reviewItems.get(anchorOf(field))!);
+    }
+  }
 
-  const job = await getJobContext(profile.id);
-  const ctx: Tier1Context = {
-    fileFieldCount: scan.fields.filter((f) => f.type === 'file').length,
-    companyName: job.companyName,
-    hasSeparateCountryCode: scan.fields.some((f) => /\b(country|phone|dial(ing)?|calling) code\b/i.test(f.question || '')),
-  };
+  const flagged = Array.from(reviewItems.values()).filter((i) => i.element?.isConnected);
+  stats.flagged = flagged.length;
+  stats.unfilled = Math.max(0, attempted - (stats.tier1Filled + stats.savedFilled + stats.tier2Filled));
+  stats.durationMs = Date.now() - stats.startTime;
+  return { stats, stepKey, flagged, requiredMissing, fieldsFound: scan.fields.length, newFlags: newFlagsThisRun };
+}
 
+/**
+ * A voluntary self-identification question (pronouns, gender, race...) the candidate declines: when the
+ * question is optional and has no "prefer not to say" option, leaving it blank is the same as declining,
+ * so it isn't flagged. Required ones still go to the recruiter.
+ */
+function optionalDecline(field: AutoFillExtractedField, t1: AutoFillFieldResult): boolean {
+  return !field.isRequired && /^tier1:eeo_/.test(t1.strategy || '') && (Boolean(t1.declined) || isDeclineText(normalizeText(t1.value || '')));
+}
+
+/** Answers the given questions: profile rules, then saved answers, then the AI. */
+async function fillFields(
+  todo: AutoFillExtractedField[],
+  profile: CandidateAutoFillProfile,
+  job: Awaited<ReturnType<typeof getJobContext>>,
+  ctx: Tier1Context,
+  stats: AutoFillRunStats,
+  isManualTrigger: boolean,
+  stepKey: string
+): Promise<void> {
   const pending: AutoFillExtractedField[] = [];
   const optionsSeen = new Map<number, string[]>();
 
   // --- Tier 1 (profile) and saved answers ---
   for (const field of todo) {
     const el = field.element!;
+    // Redrawn by the site while filling the fields before it; the next look at the page finds the new one
+    if (!el.isConnected) continue;
     const t1 = resolveTier1Field(field, profile, ctx);
     if (t1) {
       if (t1.skip) {
@@ -315,7 +420,7 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
         continue;
       }
       if (!t1.value && !(t1.values && t1.values.length)) {
-        flag(field, t1.reason || 'This needs the recruiter.');
+        if (!optionalDecline(field, t1)) flag(field, t1.reason || 'This needs the recruiter.');
         markElementProcessed(el);
         continue;
       }
@@ -327,9 +432,10 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
         markElementProcessed(el);
         continue;
       }
+      if (!el.isConnected) continue;
       if (res.optionsSeen?.length) optionsSeen.set(field.elementIndex, res.optionsSeen);
       if (t1.final) {
-        flag(field, res.reason || 'The profile answer could not be filled.');
+        if (!optionalDecline(field, t1)) flag(field, res.reason || 'The profile answer could not be filled.');
         markElementProcessed(el);
         continue;
       }
@@ -346,6 +452,7 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
         markElementProcessed(el);
         continue;
       }
+      if (!el.isConnected) continue;
       if (res.optionsSeen?.length) optionsSeen.set(field.elementIndex, res.optionsSeen);
     }
     pending.push(field);
@@ -355,6 +462,7 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
   const aiFields: AutoFillExtractedField[] = [];
   for (const field of pending) {
     const el = field.element!;
+    if (!el.isConnected) continue;
     if (field.type === 'file') {
       if (field.isRequired) flag(field, 'Upload this document yourself.');
       markElementProcessed(el);
@@ -371,94 +479,92 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
     }
     aiFields.push(f);
   }
+  if (aiFields.length === 0) return;
 
-  if (aiFields.length > 0) {
-    const outcome = await requestAiAnswers(aiFields, profile, job, { isManualTrigger, stepKey });
-    const answered = new Set<number>();
-    for (const ans of outcome.answers) {
-      const field = aiFields.find((f) => f.elementIndex === ans.elementIndex);
-      if (!field || !field.element) continue;
-      answered.add(field.elementIndex);
-      const hasValue = Boolean(ans.value && ans.value.trim()) || Boolean(ans.values && ans.values.length);
-      if (!hasValue) {
-        // Leaving an optional question blank is fine; a required one needs the recruiter
-        if (field.isRequired) {
-          flag(field, ans.reasoning ? `AI: ${ans.reasoning}` : 'The resume and profile do not answer this.');
-        }
-        markElementProcessed(field.element);
-        continue;
-      }
-      const choiceType = field.type === 'select' || field.type === 'radio_group' || field.type === 'dropdown_button';
-      if (choiceType && field.options && field.options.length && !answerFitsOptions(field.options, ans.value)) {
-        flag(field, `The AI answer "${ans.value}" doesn't match any option.`);
-        markElementProcessed(field.element);
-        continue;
-      }
-      const res = await injectField(field, { value: ans.value, values: ans.values }, profile);
-      if (res.ok) {
-        stats.tier2Filled++;
-        markFilled(field, 'tier2', ans.reasoning || 'AI answer');
-        if (ans.needsReview) flag(field, ans.reasoning ? `AI is unsure: ${ans.reasoning}` : 'AI is unsure about this answer.', true);
-        logAiAnswer(field.question || field.label || 'Question', ans.values && ans.values.length ? ans.values.join(', ') : ans.value);
-        trackForLearning(field, job.companyName);
-      } else {
-        flag(field, res.reason || 'The AI answer could not be filled.');
+  const outcome = await requestAiAnswers(aiFields, profile, job, { isManualTrigger, stepKey });
+  const answered = new Set<number>();
+  for (const ans of outcome.answers) {
+    const field = aiFields.find((f) => f.elementIndex === ans.elementIndex);
+    if (!field || !field.element || !field.element.isConnected) continue;
+    answered.add(field.elementIndex);
+    const hasValue = Boolean(ans.value && ans.value.trim()) || Boolean(ans.values && ans.values.length);
+    if (!hasValue) {
+      // Leaving an optional question blank is fine; a required one needs the recruiter
+      if (field.isRequired) {
+        flag(field, ans.reasoning ? `AI: ${ans.reasoning}` : 'The resume and profile do not answer this.');
       }
       markElementProcessed(field.element);
-    }
-    for (const field of aiFields) {
-      if (answered.has(field.elementIndex) || !field.element) continue;
-      if (outcome.skippedReason) {
-        // Not marked processed, so a later run can retry
-        if (field.isRequired) flag(field, `No AI answer yet (${outcome.skippedReason}).`);
-      } else {
-        if (field.isRequired) flag(field, 'No answer found in the profile or resume.');
-        markElementProcessed(field.element);
-      }
-    }
-  }
-
-  // --- Required fields still empty ---
-  const requiredMissing: AutoFillReviewItem[] = [];
-  for (const field of scan.fields) {
-    if (!field.isRequired || !field.element || !field.element.isConnected) continue;
-    if (field.type === 'file' && !readFieldValue(field) && field.element.getAttribute('data-jdm-file-injected') !== 'true') {
-      if (!reviewItems.has(anchorOf(field))) flag(field, 'Required upload is missing.');
-      requiredMissing.push(reviewItems.get(anchorOf(field))!);
       continue;
     }
-    if (field.type !== 'file' && !readFieldValue(field)) {
-      if (!reviewItems.has(anchorOf(field))) flag(field, 'Required and still empty.');
-      requiredMissing.push(reviewItems.get(anchorOf(field))!);
+    const choiceType = field.type === 'select' || field.type === 'radio_group' || field.type === 'dropdown_button';
+    if (choiceType && field.options && field.options.length && !answerFitsOptions(field.options, ans.value)) {
+      flag(field, `The AI answer "${ans.value}" doesn't match any option.`);
+      markElementProcessed(field.element);
+      continue;
+    }
+    // The recruiter may have answered it while the AI was thinking
+    if (isUserEdited(field)) {
+      markElementProcessed(field.element);
+      continue;
+    }
+    const res = await injectField(field, { value: ans.value, values: ans.values }, profile);
+    if (res.ok) {
+      stats.tier2Filled++;
+      markFilled(field, 'tier2', ans.reasoning || 'AI answer');
+      if (ans.needsReview) flag(field, ans.reasoning ? `AI is unsure: ${ans.reasoning}` : 'AI is unsure about this answer.', true);
+      logAiAnswer(field.question || field.label || 'Question', ans.values && ans.values.length ? ans.values.join(', ') : ans.value);
+      trackForLearning(field, job.companyName);
+    } else {
+      flag(field, res.reason || 'The AI answer could not be filled.');
+    }
+    markElementProcessed(field.element);
+  }
+  for (const field of aiFields) {
+    if (answered.has(field.elementIndex) || !field.element || !field.element.isConnected) continue;
+    if (outcome.skippedReason) {
+      // Not marked processed, so a later run can retry
+      if (field.isRequired) flag(field, `No AI answer yet (${outcome.skippedReason}).`);
+    } else {
+      if (field.isRequired) flag(field, 'No answer found in the profile or resume.');
+      markElementProcessed(field.element);
     }
   }
-
-  const flagged = Array.from(reviewItems.values()).filter((i) => i.element?.isConnected);
-  stats.flagged = flagged.length;
-  stats.unfilled = Math.max(0, todo.length - (stats.tier1Filled + stats.savedFilled + stats.tier2Filled));
-  stats.durationMs = Date.now() - stats.startTime;
-  return { stats, stepKey, flagged, requiredMissing, fieldsFound: scan.fields.length, newFlags: newFlagsThisRun };
 }
 
-async function runStepLocked(isManualTrigger: boolean, showToasts: boolean): Promise<StepResult | null> {
+async function runStepLocked(isManualTrigger: boolean, showToasts: boolean, opts: StepOptions = {}): Promise<StepResult | null> {
   if (isExecutionInProgress) {
     // A page-change fill is running; wait for it instead of skipping
     const free = await waitFor(() => !isExecutionInProgress, 20000, 100);
     if (!free) return null;
   }
   isExecutionInProgress = true;
+  const focusBefore = opts.automatic ? deepActiveElement() : null;
   try {
-    return await fillCurrentStep(isManualTrigger, showToasts);
+    return await fillCurrentStep(isManualTrigger, showToasts, opts);
   } catch (err) {
     console.error('[JDMatcher Auto-Fill] Error filling page:', err);
     return null;
   } finally {
     isExecutionInProgress = false;
+    restoreFocus(focusBefore);
+  }
+}
+
+/** Gives the cursor back to the field the recruiter was in before an automatic fill moved it. */
+function restoreFocus(el: Element | null): void {
+  if (!(el instanceof HTMLElement) || !el.isConnected || deepActiveElement() === el) return;
+  if (!el.matches('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) return;
+  try {
+    el.focus({ preventScroll: true });
+  } catch {
+    // ignore
   }
 }
 
 function finishToasts(result: StepResult, isManualTrigger: boolean): void {
   const filled = result.stats.tier1Filled + result.stats.savedFilled + result.stats.tier2Filled;
+  // Everything the review list asked about has been answered since (by the recruiter or a later fill)
+  if (result.flagged.length === 0 && shownPanelMode() === 'review') dismissReviewPanel();
   if (result.flagged.length > 0 && (filled > 0 || result.newFlags > 0 || isManualTrigger)) {
     dismissAutoFillToast();
     showReviewPanel('review', result.flagged);
@@ -492,7 +598,13 @@ export async function executeAutoFillCycle(isManualTrigger = false): Promise<Aut
     }
   }
   if (isManualTrigger) resetTier2CircuitBreaker();
-  const result = await runStepLocked(isManualTrigger, true);
+  // New questions on a page the recruiter already ran Fill Form on are part of that application
+  const session = loadSession();
+  const inRun = Boolean(session && session.jobKey === currentJobKey());
+  const result = await runStepLocked(isManualTrigger, true, {
+    lenient: inRun || (isManualTrigger && manualFillAcceptsShortPage()),
+    automatic: !isManualTrigger,
+  });
   if (!result) return emptyStats();
   if (result.fieldsFound === 0) {
     if (isManualTrigger) showNoFormToast();
@@ -547,6 +659,8 @@ async function runAutoSession(isManualTrigger: boolean, onFirstPage?: (stats: Au
   sessionRunning = true;
   const existing = loadSession();
   const sameRun = Boolean(existing && existing.candidateId === currentProfile.id && existing.jobKey === currentJobKey());
+  // Short pages count as the form when the recruiter pressed Fill Form here, or the run is already on this application
+  const shortPageOk = sameRun || (isManualTrigger && manualFillAcceptsShortPage());
   saveSession({
     candidateId: currentProfile.id,
     startedAt: sameRun ? existing!.startedAt : Date.now(),
@@ -569,11 +683,13 @@ async function runAutoSession(isManualTrigger: boolean, onFirstPage?: (stats: Au
 
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      let result = await runStepLocked(isManualTrigger && step === 0, true);
+      // After clicking Next on a form, every following page is part of it, however short
+      const lenient = step > 0 || shortPageOk;
+      let result = await runStepLocked(isManualTrigger && step === 0, true, { lenient });
       if (result && result.fieldsFound === 0) {
         // The next page may still be loading
         await sleep(1200);
-        result = await runStepLocked(false, true);
+        result = await runStepLocked(false, true, { lenient });
       }
       if (!result) {
         report(emptyStats());
@@ -725,18 +841,39 @@ function installPausedNextListener(): void {
 // Wiring
 // ---------------------------------------------------------------------------
 
+let automaticFillTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Page-load and new-question fills (and carrying on a paused run). They wait until the recruiter has
+ * stopped typing and clicking, so the engine never fills a box while the recruiter is working in the form.
+ */
+function scheduleAutomaticFill(delayMs = 0): void {
+  if (automaticFillTimer) clearTimeout(automaticFillTimer);
+  automaticFillTimer = setTimeout(() => {
+    automaticFillTimer = null;
+    if (sessionRunning) return;
+    const idle = msSinceUserActivity();
+    if (idle < USER_IDLE_MS || isExecutionInProgress) {
+      scheduleAutomaticFill(Math.max(250, USER_IDLE_MS - idle + 50));
+      return;
+    }
+    void maybeResumeSession().then((resumed) => {
+      if (!resumed && isAutoFillEnabled) void executeAutoFillCycle(false);
+    });
+  }, delayMs);
+}
+
 async function initialize(): Promise<void> {
   await loadStoredState();
   installAnswerRecorder(() => currentProfile?.id || null);
+  installUserActivityTracker();
   installPausedNextListener();
 
   startFormObserver({
     debounceMs: 400,
     onFormMutated: () => {
       if (sessionRunning || isExecutionInProgress) return;
-      void maybeResumeSession().then((resumed) => {
-        if (!resumed) void executeAutoFillCycle(false);
-      });
+      scheduleAutomaticFill();
     },
   });
 
@@ -811,11 +948,7 @@ async function initialize(): Promise<void> {
 
   if (currentProfile) {
     // Let the ATS finish rendering, then continue a run that was in progress or do a normal fill
-    setTimeout(() => {
-      void maybeResumeSession().then((resumed) => {
-        if (!resumed && isAutoFillEnabled) void executeAutoFillCycle(false);
-      });
-    }, 900);
+    scheduleAutomaticFill(900);
   }
 }
 

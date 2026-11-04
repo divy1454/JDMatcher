@@ -6,7 +6,7 @@
  */
 import { CandidateAutoFillProfile, AutoFillExtractedField, AutoFillFieldResult } from '../content/types';
 import { normalizeText, cleanLabel } from './text-utils';
-import { matchOption, isPlaceholderOption, answerToChecked, scoreOption } from './option-matcher';
+import { matchOption, isPlaceholderOption, answerToChecked, scoreOption, highestOptionIndex } from './option-matcher';
 import {
   deepQueryAll,
   getByIdNear,
@@ -18,6 +18,7 @@ import {
   textOf,
   waitFor,
 } from './dom-utils';
+import { asEngine } from './user-activity';
 
 export interface InjectResult {
   ok: boolean;
@@ -107,14 +108,33 @@ async function fillText(el: HTMLInputElement | HTMLTextAreaElement, raw: string)
   return el.value.trim() ? ok() : fail('The site cleared the value.');
 }
 
+/** How to choose when the answer isn't a plain option text: the highest number, or fallbacks in order. */
+interface Choice {
+  pick?: 'highest';
+  alternatives?: string[];
+}
+
+function choose(labels: string[], target: string, how: Choice = {}): ReturnType<typeof matchOption> {
+  if (how.pick === 'highest') {
+    const i = highestOptionIndex(labels);
+    if (i !== null) return { option: labels[i], index: i, score: 100, ambiguous: false };
+  }
+  let m = matchOption(labels, target);
+  for (const alt of how.alternatives || []) {
+    if (m && !m.ambiguous) break;
+    m = matchOption(labels, alt);
+  }
+  return m;
+}
+
 // ---------------------------------------------------------------------------
 // Native select
 // ---------------------------------------------------------------------------
 
-function fillSelect(sel: HTMLSelectElement, target: string): InjectResult {
+function fillSelect(sel: HTMLSelectElement, target: string, how: Choice = {}): InjectResult {
   const texts = Array.from(sel.options).map((o) => cleanLabel(o.text));
   const optionsSeen = texts.filter((t) => !isPlaceholderOption(t));
-  const m = matchOption(texts, target);
+  const m = choose(texts, target, how);
   if (!m) return fail(`No option matches "${target}".`, optionsSeen);
   if (m.ambiguous) return fail(`More than one option could mean "${target}".`, optionsSeen);
 
@@ -172,10 +192,10 @@ async function setChecked(el: HTMLElement, desired: boolean, isAria: boolean): P
   return input.checked === desired;
 }
 
-async function fillRadioGroup(field: AutoFillExtractedField, target: string): Promise<InjectResult> {
+async function fillRadioGroup(field: AutoFillExtractedField, target: string, how: Choice = {}): Promise<InjectResult> {
   const options = field.optionElements || [];
   const labels = options.map((o) => o.label);
-  const m = matchOption(labels, target);
+  const m = choose(labels, target, how);
   if (!m) return fail(`No option matches "${target}".`, labels);
   if (m.ambiguous) return fail(`More than one option could mean "${target}".`, labels);
   const done = await setChecked(options[m.index].element, true, Boolean(field.isAria));
@@ -268,12 +288,12 @@ async function closeListbox(trigger: HTMLElement, listbox: HTMLElement | null): 
   }
 }
 
-async function fillDropdownButton(btn: HTMLElement, target: string): Promise<InjectResult> {
+async function fillDropdownButton(btn: HTMLElement, target: string, how: Choice = {}): Promise<InjectResult> {
   const before = textOf(btn);
   const { listbox, options } = await openListbox(btn);
   if (!listbox) return fail('The dropdown did not open.');
   const texts = options.map((o) => textOf(o));
-  const m = matchOption(texts, target);
+  const m = choose(texts, target, how);
   if (!m || m.ambiguous) {
     await closeListbox(btn, listbox);
     return fail(m ? `More than one option could mean "${target}".` : `No option matches "${target}".`, texts);
@@ -366,9 +386,9 @@ async function closeCombobox(input: HTMLInputElement): Promise<void> {
   }
 }
 
-async function fillCombobox(input: HTMLInputElement, target: string): Promise<InjectResult> {
+async function fillCombobox(input: HTMLInputElement, target: string, how: Choice = {}): Promise<InjectResult> {
   let options = await openCombobox(input);
-  let m = options.length ? matchOption(options.map((o) => o.text), target) : null;
+  let m = options.length ? choose(options.map((o) => o.text), target, how) : null;
 
   if (!m || m.ambiguous) {
     // Long or async lists: type part of the answer to search
@@ -442,15 +462,24 @@ export function injectResumeFile(element: HTMLInputElement, profile: CandidateAu
 // ---------------------------------------------------------------------------
 
 /** Fills one field with a resolved answer and verifies it. */
-export async function injectField(
+export function injectField(
   field: AutoFillExtractedField,
-  result: Pick<AutoFillFieldResult, 'value' | 'values'>,
+  result: Pick<AutoFillFieldResult, 'value' | 'values' | 'pick' | 'alternatives'>,
+  profile: CandidateAutoFillProfile
+): Promise<InjectResult> {
+  return asEngine(() => injectFieldNow(field, result, profile));
+}
+
+async function injectFieldNow(
+  field: AutoFillExtractedField,
+  result: Pick<AutoFillFieldResult, 'value' | 'values' | 'pick' | 'alternatives'>,
   profile: CandidateAutoFillProfile
 ): Promise<InjectResult> {
   const el = field.element;
   if (!el) return fail('Field is gone from the page.');
   if (!el.isConnected) return fail('Field is gone from the page.');
   const value = (result.value || '').trim();
+  const how: Choice = { pick: result.pick, alternatives: result.alternatives };
 
   switch (field.type) {
     case 'text':
@@ -458,9 +487,9 @@ export async function injectField(
       if (!value) return fail('Empty answer.');
       return fillText(el as HTMLInputElement | HTMLTextAreaElement, value);
     case 'select':
-      return fillSelect(el as HTMLSelectElement, value);
+      return fillSelect(el as HTMLSelectElement, value, how);
     case 'radio_group':
-      return fillRadioGroup(field, value);
+      return fillRadioGroup(field, value, how);
     case 'checkbox_group':
       return fillCheckboxGroup(field, { ...result, value } as AutoFillFieldResult);
     case 'checkbox': {
@@ -470,9 +499,9 @@ export async function injectField(
       return done ? ok() : fail('The checkbox could not be changed.');
     }
     case 'dropdown_button':
-      return fillDropdownButton(el, value);
+      return fillDropdownButton(el, value, how);
     case 'combobox':
-      return fillCombobox(el as HTMLInputElement, value);
+      return fillCombobox(el as HTMLInputElement, value, how);
     case 'file':
       if (value !== '__RESUME_FILE__') return fail('Only the resume is uploaded automatically.');
       return injectResumeFile(el as HTMLInputElement, profile) ? ok() : fail('The resume could not be attached.');
@@ -482,7 +511,11 @@ export async function injectField(
 }
 
 /** Opens a dropdown/combobox just long enough to read its options (for the AI). */
-export async function readLazyOptions(field: AutoFillExtractedField): Promise<string[]> {
+export function readLazyOptions(field: AutoFillExtractedField): Promise<string[]> {
+  return asEngine(() => readLazyOptionsNow(field));
+}
+
+async function readLazyOptionsNow(field: AutoFillExtractedField): Promise<string[]> {
   const el = field.element;
   if (!el || !el.isConnected) return [];
   if (field.type === 'dropdown_button') {

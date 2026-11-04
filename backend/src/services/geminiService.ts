@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { env } from '../env.js';
 import { TokenUsage } from './billingService.js';
+import { parseModelList } from './aiJson.js';
 
 export interface EvaluationVerdict {
   verdict: 'APPLY' | 'SKIP';
@@ -855,42 +856,49 @@ ${JSON.stringify(unresolvedFields, null, 2)}
 Answer all fields precisely in valid JSON.`;
 
     let rawText = '';
-    let usageMetadata: any = null;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let parsed: { items: Record<string, unknown>[]; complete: boolean } | null = null;
+    let finishReason = '';
 
-    try {
-      const response = await client.models.generateContent({
-        model: modelName,
-        contents: [
-          { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }
-        ],
-        config: {
-          temperature: 0.1,
-          responseMimeType: 'application/json',
-        },
-      });
-
-      rawText = response.text || '';
-      usageMetadata = response.usageMetadata;
-    } catch (err: any) {
-      console.error('[GeminiService] Autofill resolve error:', err);
-      throw new Error(`AI_AUTOFILL_FAILED: ${err.message || 'AI service call failed'}`);
+    // One retry: a reply can come back empty or cut off, and a second try usually works
+    for (let attempt = 1; attempt <= 2 && !parsed; attempt++) {
+      try {
+        const response = await client.models.generateContent({
+          model: modelName,
+          contents: [
+            { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }
+          ],
+          config: {
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          },
+        });
+        rawText = response.text || '';
+        finishReason = String(response.candidates?.[0]?.finishReason || '');
+        inputTokens += response.usageMetadata?.promptTokenCount || Math.ceil((systemPrompt.length + userPrompt.length) / 4);
+        outputTokens += response.usageMetadata?.candidatesTokenCount || Math.ceil(rawText.length / 4);
+      } catch (err: any) {
+        console.error('[GeminiService] Autofill resolve error:', err);
+        if (attempt === 2) throw new Error(`AI_AUTOFILL_FAILED: ${err.message || 'AI service call failed'}`);
+        continue;
+      }
+      parsed = parseModelList(rawText, 'resolvedFields');
+      if (!parsed) console.error(`[GeminiService] Unreadable autofill reply (attempt ${attempt}, finish: ${finishReason || 'n/a'}):`, rawText.slice(0, 2000));
     }
 
+    if (!parsed) {
+      const why = !rawText.trim()
+        ? `The AI returned an empty answer${finishReason && finishReason !== 'STOP' ? ` (${finishReason})` : ''}.`
+        : finishReason === 'MAX_TOKENS'
+          ? 'The AI answer was cut off before it finished.'
+          : 'The AI answer was not valid JSON.';
+      throw new Error(`AI_AUTOFILL_FAILED: ${why}`);
+    }
     const latencyMs = Date.now() - startTime;
-    const inputTokens = usageMetadata?.promptTokenCount || Math.ceil((systemPrompt.length + userPrompt.length) / 4);
-    const outputTokens = usageMetadata?.candidatesTokenCount || Math.ceil(rawText.length / 4);
-
-    let parsed: { resolvedFields?: any[] } = { resolvedFields: [] };
-    try {
-      const cleanJson = rawText.replace(/```json\n?|\n?```/g, '').trim();
-      parsed = JSON.parse(cleanJson);
-    } catch (parseErr) {
-      console.error('[GeminiService] Failed to parse JSON response:', rawText);
-      throw new Error('AI_AUTOFILL_FAILED: Invalid JSON returned by AI model.');
-    }
 
     return {
-      result: { resolvedFields: GeminiService.normalizeAutofillAnswers(parsed.resolvedFields, unresolvedFields) },
+      result: { resolvedFields: GeminiService.normalizeAutofillAnswers(parsed.items as any[], unresolvedFields) },
       usage: {
         inputTokens,
         outputTokens,

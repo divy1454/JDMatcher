@@ -68,9 +68,16 @@ button.primary:hover { background: #34d399; }
 `;
 
 let onContinue: (() => void) | null = null;
+let shownMode: PanelMode | null = null;
 
 export function dismissReviewPanel(): void {
   document.getElementById(PANEL_ID)?.remove();
+  shownMode = null;
+}
+
+/** The kind of panel showing in this frame right now, or null. */
+export function shownPanelMode(): PanelMode | null {
+  return document.getElementById(PANEL_ID) ? shownMode : null;
 }
 
 /**
@@ -100,6 +107,7 @@ export function showReviewPanel(mode: PanelMode, items: AutoFillReviewItem[], co
 
 function renderPanel(mode: PanelMode, items: AutoFillReviewItem[], continueHandler: (() => void) | null): void {
   dismissReviewPanel();
+  shownMode = mode;
   onContinue = continueHandler;
   const host = document.createElement('div');
   host.id = PANEL_ID;

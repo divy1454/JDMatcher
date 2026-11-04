@@ -9,6 +9,7 @@ import { depositGuard } from '../middleware/depositGuard.js';
 import { GeminiService } from '../services/geminiService.js';
 import { BillingService } from '../services/billingService.js';
 import { telemetryService } from '../services/telemetryService.js';
+import { cityStateFromResume } from '../services/resumeLocation.js';
 
 const unresolvedFieldSchema = z.object({
   id: z.string().max(255),
@@ -168,30 +169,40 @@ export const autofillRoutes: FastifyPluginAsync = async (fastify: FastifyInstanc
       const totalYearsExperience = candidate.yearsOfExperience && candidate.yearsOfExperience > 0 ? candidate.yearsOfExperience : undefined;
       const social: Record<string, any> = rawStructured.social || {};
 
+      // Many forms require a location; when the profile has none, use the city and state at the top of the resume
+      const personalFromProfile: Record<string, any> = {
+        firstName,
+        lastName,
+        fullName: candidate.fullName,
+        email: rawStructured.personal?.email || '',
+        phone: rawStructured.personal?.phone || '',
+        phoneCountryCode: rawStructured.personal?.phoneCountryCode || '+1',
+        address: rawStructured.personal?.address || '',
+        city: rawStructured.personal?.city || '',
+        state: rawStructured.personal?.state || '',
+        zipCode: rawStructured.personal?.zipCode || '',
+        country: rawStructured.personal?.country || 'United States',
+        citizenshipStatus: rawStructured.personal?.citizenshipStatus || candidate.visaStatus,
+        veteranStatus: rawStructured.personal?.veteranStatus,
+        disabilityStatus: rawStructured.personal?.disabilityStatus,
+        gender: rawStructured.personal?.gender,
+        raceEthnicity: rawStructured.personal?.raceEthnicity,
+        ...(rawStructured.personal || {}),
+      };
+      if (!personalFromProfile.city || !personalFromProfile.state) {
+        const fromResume = cityStateFromResume(candidate.rawResumeText || '');
+        if (fromResume) {
+          if (!personalFromProfile.city) personalFromProfile.city = fromResume.city;
+          if (!personalFromProfile.state) personalFromProfile.state = fromResume.state;
+        }
+      }
+
       const profilePayload = {
         id: candidate.id,
         fullName: candidate.fullName,
         primaryTitle: candidate.primaryTitle,
         totalYearsExperience,
-        personal: {
-          firstName,
-          lastName,
-          fullName: candidate.fullName,
-          email: rawStructured.personal?.email || '',
-          phone: rawStructured.personal?.phone || '',
-          phoneCountryCode: rawStructured.personal?.phoneCountryCode || '+1',
-          address: rawStructured.personal?.address || '',
-          city: rawStructured.personal?.city || '',
-          state: rawStructured.personal?.state || '',
-          zipCode: rawStructured.personal?.zipCode || '',
-          country: rawStructured.personal?.country || 'United States',
-          citizenshipStatus: rawStructured.personal?.citizenshipStatus || candidate.visaStatus,
-          veteranStatus: rawStructured.personal?.veteranStatus,
-          disabilityStatus: rawStructured.personal?.disabilityStatus,
-          gender: rawStructured.personal?.gender,
-          raceEthnicity: rawStructured.personal?.raceEthnicity,
-          ...(rawStructured.personal || {}),
-        },
+        personal: personalFromProfile,
         education: rawStructured.education || [],
         workHistory: rawStructured.workHistory || [],
         social: { ...social, otherWebsiteUrl: social.otherWebsiteUrl || social.otherUrl },

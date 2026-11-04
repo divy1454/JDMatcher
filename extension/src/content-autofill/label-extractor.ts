@@ -5,7 +5,7 @@
  * option label ("Yes"/"No"). Using the option label as the question was the root cause of
  * Yes/No questions being answered wrongly.
  */
-import { cleanLabel } from './text-utils';
+import { cleanLabel, normalizeText } from './text-utils';
 import { getByIdNear, textOf, textWithoutControls, commonAncestor } from './dom-utils';
 
 export interface ExtractedLabelInfo {
@@ -38,8 +38,21 @@ export function tidyQuestion(text: string): string {
 
 const MAX_QUESTION_LENGTH = 400;
 
+/**
+ * Text that a dropdown or search box shows before anything is chosen ("Select", "Choose an option",
+ * "Type to search"). It is never the question: a field labelled this way (seen on Rippling) was sent
+ * to the AI as the question "Select".
+ */
+const GENERIC_TEXT =
+  /^(please )?(select|choose|pick)( one| an option| an answer| option| your answer| from the list| here)?$|^(search|search here|type to search|start typing|type here|enter here|none selected|your answer)$/;
+
+export function isGenericLabel(text: string | null | undefined): boolean {
+  const norm = normalizeText(text);
+  return !norm || GENERIC_TEXT.test(norm);
+}
+
 function usable(text: string): boolean {
-  return text.length > 0 && text.length <= MAX_QUESTION_LENGTH && !/^[*\s]+$/.test(text);
+  return text.length > 0 && text.length <= MAX_QUESTION_LENGTH && !/^[*\s]+$/.test(text) && !isGenericLabel(text);
 }
 
 function textFromIdRefs(el: Element, attr: string): string {
@@ -144,10 +157,10 @@ export function extractQuestionForElement(element: HTMLElement): string {
   if (near) return tidyQuestion(near);
 
   const placeholder = cleanLabel(element.getAttribute('placeholder'));
-  if (placeholder) return tidyQuestion(placeholder);
+  if (placeholder && !isGenericLabel(placeholder)) return tidyQuestion(placeholder);
 
   const title = cleanLabel(element.getAttribute('title'));
-  if (title) return tidyQuestion(title);
+  if (title && !isGenericLabel(title)) return tidyQuestion(title);
 
   return '';
 }

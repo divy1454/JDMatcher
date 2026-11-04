@@ -36,6 +36,24 @@ const PLACEHOLDER_PATTERNS = [
   /^select\s+\w+$/, // "Select country", "Select state"
 ];
 
+/** Index of the option with the biggest number in it ("Up to 25%", "50-75%", "75%+" -> the last), or null. */
+export function highestOptionIndex(options: string[]): number | null {
+  let best: number | null = null;
+  let bestValue = Number.NEGATIVE_INFINITY;
+  options.forEach((label, i) => {
+    if (isPlaceholderOption(label) || isDeclineText(normalizeText(label))) return;
+    const nums = (String(label).replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).map(Number);
+    if (!nums.length) return;
+    // "75%+" / "more than 50%" beat a plain "75%"
+    const top = Math.max(...nums) + (/\+|\b(more than|over|above|or more|and above)\b/i.test(label) ? 0.5 : 0);
+    if (top > bestValue) {
+      bestValue = top;
+      best = i;
+    }
+  });
+  return best;
+}
+
 export function isPlaceholderOption(text: string | null | undefined): boolean {
   const norm = normalizeText(text);
   return PLACEHOLDER_PATTERNS.some((re) => re.test(norm));
@@ -112,6 +130,55 @@ const STATE_NAMES = new Set(Object.values(US_STATES));
 
 function canonicalCountry(norm: string): string | null {
   return COUNTRY_ALIASES[norm] || null;
+}
+
+// ---------------------------------------------------------------------------
+// Phone country codes ("+44", "🇬🇧 +44", "United Kingdom (+44)", "+1 268")
+// ---------------------------------------------------------------------------
+
+/** Two-letter country codes seen in phone pickers, as canonical country names. */
+const ISO_COUNTRIES: Record<string, string> = {
+  us: 'united states', ca: 'canada', gb: 'united kingdom', uk: 'united kingdom', in: 'india', mx: 'mexico',
+  au: 'australia', nz: 'new zealand', ie: 'ireland', de: 'germany', fr: 'france', es: 'spain', it: 'italy',
+  nl: 'netherlands', pl: 'poland', pt: 'portugal', ch: 'switzerland', se: 'sweden', no: 'norway',
+  dk: 'denmark', fi: 'finland', be: 'belgium', at: 'austria', br: 'brazil', ar: 'argentina', co: 'colombia',
+  cn: 'china', jp: 'japan', kr: 'south korea', sg: 'singapore', ph: 'philippines', pk: 'pakistan',
+  bd: 'bangladesh', lk: 'sri lanka', np: 'nepal', ae: 'united arab emirates', sa: 'saudi arabia',
+  il: 'israel', za: 'south africa', ng: 'nigeria', ke: 'kenya', eg: 'egypt', tr: 'turkey', ua: 'ukraine',
+  ro: 'romania', vn: 'vietnam', th: 'thailand', my: 'malaysia', id: 'indonesia', jm: 'jamaica', pr: 'puerto rico',
+};
+
+const DIAL_RE = /\+\s?(\d{1,4})(?:[\s-](\d{3})(?!\d))?/;
+const FLAG_RE = /([\u{1F1E6}-\u{1F1FF}])([\u{1F1E6}-\u{1F1FF}])/u;
+
+/** The dial code in a short phone-picker text ("+44", "🇬🇧 +44", "+1 268" -> "1268"), or null. */
+export function dialCodeOf(text: string | null | undefined): string | null {
+  const s = String(text || '').trim();
+  if (!s || s.length > 60) return null;
+  const m = s.match(DIAL_RE);
+  if (!m) return null;
+  return m[2] ? m[1] + m[2] : m[1];
+}
+
+/** The country named next to a dial code (by name, two-letter code or flag emoji), or null. */
+function dialCountry(text: string): string | null {
+  const flag = text.match(FLAG_RE);
+  if (flag) {
+    const iso = String.fromCharCode(flag[1].codePointAt(0)! - 0x1f1e6 + 97, flag[2].codePointAt(0)! - 0x1f1e6 + 97);
+    if (ISO_COUNTRIES[iso]) return ISO_COUNTRIES[iso];
+  }
+  const rest = normalizeText(text.replace(DIAL_RE, ' ').replace(FLAG_RE, ' '));
+  if (!rest) return null;
+  return canonicalCountry(rest) || ISO_COUNTRIES[rest] || (Object.values(ISO_COUNTRIES).includes(rest) ? rest : null);
+}
+
+/** "Charlotte, NC, USA" -> { city: "charlotte", state: "north carolina" }; null without a comma. */
+function cityAndState(raw: string): { city: string; state: string | null } | null {
+  if (!raw.includes(',')) return null;
+  const parts = raw.split(',').map((p) => normalizeText(p)).filter(Boolean);
+  if (parts.length < 2) return null;
+  const state = parts.slice(1).map((p) => canonicalState(p)).find(Boolean) || null;
+  return { city: parts[0], state };
 }
 
 export function canonicalState(norm: string): string | null {
@@ -203,11 +270,20 @@ function parseRange(raw: string): [number, number] | null {
 // ---------------------------------------------------------------------------
 
 /** 0..100 score for how well `option` answers with `target`. */
+/** The qualifier on standard EEO race options: "Asian (Not Hispanic or Latino)". */
+const NOT_HISPANIC = /\(?\s*\b(?:not|non)[\s-]+hispanic(?:\s+or\s+latino)?\s*\)?/i;
+
 export function scoreOption(target: string, option: string): number {
   const t = normalizeText(target);
   const o = normalizeText(option);
   if (!t || !o) return 0;
   if (t === o) return 100;
+  // "Asian" means "Asian (Not Hispanic or Latino)" on Greenhouse/Ashby EEO forms; the "Not" used to read
+  // as the opposite answer, so no race ever matched
+  if (NOT_HISPANIC.test(option) && !/\b(hispanic|latino|latina|latinx)\b/.test(t)) {
+    const bare = option.replace(NOT_HISPANIC, ' ').trim();
+    if (normalizeText(bare)) return scoreOption(target, bare);
+  }
 
   // 1. Yes / No / Decline answers
   const tp = answerPolarity(t);
@@ -221,6 +297,17 @@ export function scoreOption(target: string, option: string): number {
     return 88 + Math.round(6 * overlap.coverageB);
   }
   if (isDeclineText(o)) return 0;
+
+  // 2a. Phone country codes: the code must be the same, and so must the country when both name one
+  const tDial = dialCodeOf(target);
+  const oDial = dialCodeOf(option);
+  if (tDial && oDial) {
+    if (tDial !== oDial) return 0;
+    const tc = dialCountry(target);
+    const oc = dialCountry(option);
+    if (tc && oc) return tc === oc ? 99 : 0;
+    return 90;
+  }
 
   // 2. Countries, states, degrees
   const tc = canonicalCountry(t);
@@ -237,6 +324,15 @@ export function scoreOption(target: string, option: string): number {
     const od = canonicalDegree(o);
     if (od) return od === td ? 94 : 0;
   }
+
+  // 2b. Places: "Charlotte, North Carolina" against location suggestions like "Charlotte, NC, USA"
+  const tPlace = cityAndState(target);
+  const oPlace = cityAndState(option);
+  if (tPlace && oPlace && tPlace.city === oPlace.city) {
+    if (tPlace.state && oPlace.state) return tPlace.state === oPlace.state ? 96 : 0;
+    return 85;
+  }
+  if (tPlace && oPlace && tPlace.state && oPlace.state) return 0; // a different city
 
   // 3. Numbers against ranges ("7" -> "6-10 years")
   const tn = parseNumber(target);
@@ -279,24 +375,21 @@ export function matchOption(
 ): OptionMatch | null {
   if (!options || options.length === 0 || !target || !normalizeText(target)) return null;
 
-  let best: OptionMatch | null = null;
-  let secondScore = -1;
+  const scored: OptionMatch[] = [];
   options.forEach((option, index) => {
     if (isPlaceholderOption(option)) return;
     const score = scoreOption(target, option);
-    if (score <= 0) return;
-    if (!best || score > best.score || (score === best.score && option.length < best.option.length)) {
-      if (best) secondScore = Math.max(secondScore, best.score);
-      best = { option, index, score, ambiguous: false };
-    } else {
-      secondScore = Math.max(secondScore, score);
-    }
+    if (score > 0) scored.push({ option, index, score, ambiguous: false });
   });
-
-  const result = best as OptionMatch | null;
-  if (!result || result.score < minScore) return null;
+  if (scored.length === 0) return null;
+  // Highest score; among equals the shortest wording, then the first one
+  scored.sort((a, b) => b.score - a.score || a.option.length - b.option.length || a.index - b.index);
+  const result = scored[0];
+  if (result.score < minScore) return null;
   // Two different options with the same score below "certain" means we cannot tell them apart.
-  result.ambiguous = result.score < 95 && secondScore === result.score;
+  // The same text twice ("+1" for both the US and Canada) is not a real choice.
+  const rivals = scored.filter((s) => s.score === result.score && normalizeText(s.option) !== normalizeText(result.option));
+  result.ambiguous = result.score < 95 && rivals.length > 0;
   return result;
 }
 

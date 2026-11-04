@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Product Manager @ Siftwell Analytics</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
+    .ashby-application-form-field-entry { margin-bottom: 14px; }
+    .ashby-application-form-question-title { display: block; font-weight: 600; margin-bottom: 4px; }
+    fieldset { border: 0; padding: 0; margin: 0 0 14px; }
+    legend { font-weight: 600; margin-bottom: 4px; }
+    ._option { display: flex; gap: 6px; align-items: center; }
+    input[type="text"], input[type="email"] { width: 100%; padding: 5px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <!--
+    Mimics an Ashby application (jobs.ashbyhq.com/.../application): the U.S. EEO survey questions are
+    groups of checkboxes (one answer each) inside a fieldset with a legend.
+  -->
+  <form id="ashby" onsubmit="return false">
+    <div class="ashby-application-form-field-entry"><label class="ashby-application-form-question-title" for="_systemfield_name">Name *</label><input type="text" id="_systemfield_name" name="_systemfield_name" required></div>
+    <div class="ashby-application-form-field-entry"><label class="ashby-application-form-question-title" for="_systemfield_email">Email *</label><input type="email" id="_systemfield_email" name="_systemfield_email" required></div>
+
+    <h2>U.S. Equal Employment Opportunity Information</h2>
+    <p>Completion is voluntary and will not subject you to adverse treatment.</p>
+    <fieldset>
+      <legend class="ashby-application-form-question-title">Gender</legend>
+      <div class="_option"><input type="checkbox" id="g1" name="eeoc_gender" value="Male"><label for="g1">Male</label></div>
+      <div class="_option"><input type="checkbox" id="g2" name="eeoc_gender" value="Female"><label for="g2">Female</label></div>
+      <div class="_option"><input type="checkbox" id="g3" name="eeoc_gender" value="Decline to self-identify"><label for="g3">Decline to self-identify</label></div>
+    </fieldset>
+    <fieldset>
+      <legend class="ashby-application-form-question-title">Race</legend>
+      <div class="_option"><input type="checkbox" id="r1" name="eeoc_race"><label for="r1">Hispanic or Latino</label></div>
+      <div class="_option"><input type="checkbox" id="r2" name="eeoc_race"><label for="r2">White (Not Hispanic or Latino)</label></div>
+      <div class="_option"><input type="checkbox" id="r3" name="eeoc_race"><label for="r3">Black or African American (Not Hispanic or Latino)</label></div>
+      <div class="_option"><input type="checkbox" id="r4" name="eeoc_race"><label for="r4">Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)</label></div>
+      <div class="_option"><input type="checkbox" id="r5" name="eeoc_race"><label for="r5">Asian (Not Hispanic or Latino)</label></div>
+      <div class="_option"><input type="checkbox" id="r6" name="eeoc_race"><label for="r6">American Indian or Alaska Native (Not Hispanic or Latino)</label></div>
+      <div class="_option"><input type="checkbox" id="r7" name="eeoc_race"><label for="r7">Two or More Races (Not Hispanic or Latino)</label></div>
+      <div class="_option"><input type="checkbox" id="r8" name="eeoc_race"><label for="r8">Decline to self-identify</label></div>
+    </fieldset>
+    <fieldset>
+      <legend class="ashby-application-form-question-title">Veteran Status</legend>
+      <div class="_option"><input type="checkbox" id="v1" name="eeoc_veteran"><label for="v1">I am a veteran</label></div>
+      <div class="_option"><input type="checkbox" id="v2" name="eeoc_veteran"><label for="v2">I am not a veteran</label></div>
+      <div class="_option"><input type="checkbox" id="v3" name="eeoc_veteran"><label for="v3">Decline to self-identify</label></div>
+    </fieldset>
+    <fieldset>
+      <legend class="ashby-application-form-question-title">Disability Status</legend>
+      <div class="_option"><input type="checkbox" id="d1" name="eeoc_disability"><label for="d1">Yes, I have a disability (or previously had a disability)</label></div>
+      <div class="_option"><input type="checkbox" id="d2" name="eeoc_disability"><label for="d2">No, I do not have a disability</label></div>
+      <div class="_option"><input type="checkbox" id="d3" name="eeoc_disability"><label for="d3">I do not want to answer</label></div>
+    </fieldset>
+    <button type="button" id="submit">Submit Application</button>
+  </form>
+  <script>
+    // One answer per question: ticking a box clears the others in the same question
+    document.querySelectorAll('fieldset input[type="checkbox"]').forEach((cb) =>
+      cb.addEventListener('change', () => {
+        if (cb.checked) cb.closest('fieldset').querySelectorAll('input[type="checkbox"]').forEach((o) => { if (o !== cb) o.checked = false; });
+      })
+    );
+    document.getElementById('submit').addEventListener('click', () => { window.__submitClicked = (window.__submitClicked || 0) + 1; });
+  </script>
+</body>
+</html>

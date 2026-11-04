@@ -16,7 +16,7 @@ import {
   AutoFillFieldType,
 } from '../content/types';
 import { normalizeText, wordCount, hasWord, meaningfulTokens } from './text-utils';
-import { matchOption, isDeclineText, expandUsState, answerToChecked, canonicalVisa } from './option-matcher';
+import { matchOption, isDeclineText, expandUsState, answerToChecked, canonicalVisa, highestOptionIndex, dialCodeOf } from './option-matcher';
 
 export interface Tier1Context {
   /** Number of file inputs on the page (one unlabeled upload is the resume). */
@@ -35,6 +35,10 @@ interface Answer {
   skip?: boolean;
   /** Do not hand this question to saved answers or AI. */
   final?: boolean;
+  /** Choose the option with the biggest number (travel percentage). */
+  pick?: 'highest';
+  /** Tried in order when `value` matches no option. */
+  alternatives?: string[];
 }
 
 interface Q {
@@ -92,6 +96,37 @@ function assumedReview(p: Profile, key: string, label: string): Partial<Answer> 
   return isAssumed(p, key)
     ? { needsReview: true, reason: `${label} is not set in the candidate profile, so the default was used.` }
     : {};
+}
+
+/**
+ * The candidate's phone country code as digits ("+1" -> "1"): from the profile setting, else from a
+ * "+91 98765 43210" style number, else +1 for a US (or unknown) country. Null when it can't be known.
+ */
+export function profileDialCode(p: Profile): string | null {
+  const explicit = String(p.personal?.phoneCountryCode || '').replace(/\D/g, '');
+  if (explicit) return explicit;
+  const fromNumber = String(p.personal?.phone || '').trim().match(/^\+(\d{1,3})[\s\-().]/);
+  if (fromNumber) return fromNumber[1];
+  const country = normalizeText(p.personal?.country);
+  if (!country || /^(us|usa|united states( of america)?|america)$/.test(country)) return '1';
+  return null;
+}
+
+/**
+ * A phone country-code picker: a dropdown or type-ahead showing "+44" / "🇬🇧 +44", or whose options are
+ * dial codes. Sites often pre-set it from the browser language (+44 on an en-GB page).
+ */
+export function isDialCodeControl(f: AutoFillExtractedField): boolean {
+  if (f.type !== 'select' && f.type !== 'dropdown_button' && f.type !== 'combobox') return false;
+  if (dialCodeOf(f.currentValue)) return true;
+  const options = f.options || [];
+  return options.length >= 5 && options.filter((o) => dialCodeOf(o)).length >= options.length * 0.6;
+}
+
+function dialCodeAnswer(p: Profile): Answer {
+  const country = present(p.personal?.country) || 'United States';
+  const code = profileDialCode(p);
+  return { value: code ? `${country} (+${code})` : country };
 }
 
 function isYesNoQuestion(q: Q): boolean {
@@ -265,7 +300,11 @@ const QUESTION_RULES: Rule[] = [
   {
     name: 'consent_group',
     kinds: ['checkbox_group'],
-    test: (q) => q.options.length > 0 && q.options.every((o) => o.split(' ').length >= 5),
+    // Long options read like consents, but EEO answers are long too ("No, I do not have a disability")
+    test: (q) =>
+      q.options.length > 0 &&
+      q.options.every((o) => o.split(' ').length >= 5) &&
+      !/\b(disability|disabilities|disabled|veteran|gender|race|ethnicity|hispanic|latino|pronouns?|orientation)\b/.test(q.norm),
     answer: (_p, _q, f) => {
       const values: string[] = [];
       let review: Answer | null = null;
@@ -282,7 +321,8 @@ const QUESTION_RULES: Rule[] = [
   // ---- Work authorization ----
   {
     name: 'visa_type',
-    kinds: CHOICE_KINDS,
+    // Staffing portals (JobDiva) ask "What is your immigration status?" as a text box
+    kinds: [...CHOICE_KINDS, 'textarea'],
     test: (q) =>
       /\b(visa|immigration|citizenship|work authori[sz]ation|work permit|employment authori[sz]ation)\s+(status|type|category)\b|\bwhat (is your|type of) (current )?(visa|work authori[sz]ation|immigration)\b|\bcurrent (visa|immigration)\b|\bwhich (visa|work authori[sz]ation)\b/.test(q.norm) &&
       !/\b(require|need)\b.*\bsponsor/.test(q.norm),
@@ -359,15 +399,41 @@ const QUESTION_RULES: Rule[] = [
     },
   },
   {
+    // Recruiter's standing answer: always willing to travel, and the highest percentage when one is asked.
+    // A percentage saved on the candidate wins.
     name: 'travel',
-    test: (q) => /\btravel\b/.test(q.norm) && /\b(willing|able|open|comfortable|percent|percentage)\b/.test(q.norm),
+    test: (q) =>
+      (/\btravel\b/.test(q.norm) && /\b(willing|able|open|comfortable|percent|percentage|how much|available|availability|if required|required)\b/.test(q.norm)) ||
+      /^(travel|travel percentage|percentage of travel|travel requirements?)$/.test(q.norm),
     answer: (p, q) => {
+      const asksPercent = /\b(percent|percentage|how much|what portion|amount)\b/.test(q.norm) || /%/.test(q.raw) || q.options.some((o) => /\d/.test(o));
       const pct = present(p.screening?.willingToTravelPercentage);
-      if (pct === null) return null;
-      const n = parseFloat(pct);
-      if (isYesNoQuestion(q)) return Number.isFinite(n) ? { value: yesNo(n > 0) } : null;
-      return { value: /%$/.test(pct) ? pct : `${pct}%` };
+      if (pct) {
+        const n = parseFloat(pct);
+        if (!asksPercent) return Number.isFinite(n) ? { value: yesNo(n > 0) } : null;
+        return { value: /%$/.test(pct) ? pct : `${pct}%` };
+      }
+      if (asksPercent) return { value: '100%', pick: 'highest' };
+      // Yes/no wording; if the options turn out to be percentages, the highest one
+      return { value: 'Yes', pick: 'highest' };
     },
+  },
+  {
+    // Recruiter's standing answer: never related to (or knows) anyone at the employer
+    name: 'related_to_employee',
+    test: (q) =>
+      /\b(are you|is anyone|do you have|have you)\b.{0,15}\b(related|relatives?|family members?)\b|\brelated to (anyone|someone|any (current )?employees?)\b|\b(relatives?|family members?)\b.{0,40}\b(work|works|working|employ\w*)\b|\b(know|acquainted with)\b.{0,15}\b(anyone|someone|any (current )?employees?)\b.{0,40}\b(work|works|working|employ\w*)\b/.test(q.norm),
+    answer: () => ({ value: 'No' }),
+  },
+  {
+    // Recruiter's standing answer: the job was found on LinkedIn (or the closest option)
+    name: 'job_source',
+    test: (q) =>
+      /\bhow did you (hear|learn|find out|find|come across|discover)\b|\bwhere did you (hear|find|see|learn|come across|discover)\b|^(source|job source|application source|referral source|lead source|how did you hear about us)$/.test(q.norm),
+    answer: () => ({
+      value: 'LinkedIn',
+      alternatives: ['Social media', 'Social network', 'Job board', 'Online job board', 'Job posting', 'Job site', 'Internet', 'Online', 'Other'],
+    }),
   },
   {
     name: 'age_18',
@@ -455,6 +521,32 @@ const QUESTION_RULES: Rule[] = [
     answer: (p) => ({ value: present(p.equalOpportunity?.eeoGender) || present(p.personal?.gender) || DECLINE, final: true }),
   },
   {
+    // "Are you Hispanic/Latino?" is a yes/no question asked before a separate race question (Rippling,
+    // many US forms). It used to get the race ("Asian"), which matches no option.
+    name: 'eeo_hispanic',
+    kinds: EEO_KINDS,
+    sensitive: true,
+    // Also the "Ethnicity" question whose options are "Hispanic or Latino" / "Not Hispanic or Latino"
+    test: (q) => {
+      if (/\brace\b/.test(q.norm)) return false;
+      const aboutHispanic = /\b(hispanic|latino|latina|latinx|latine)\b/.test(q.norm);
+      return (aboutHispanic && isYesNoQuestion(q)) || q.options.some((o) => /\b(not|non) hispanic\b/.test(o));
+    },
+    answer: (p, q) => {
+      const race = present(p.equalOpportunity?.eeoRace) || present(p.personal?.raceEthnicity);
+      if (!race) return { value: DECLINE, final: true };
+      const n = normalizeText(race);
+      if (isDeclineText(n)) return { value: DECLINE, final: true };
+      // The portal's race list uses the EEO-1 categories: every race other than "Hispanic or Latino"
+      // means not Hispanic or Latino
+      const hispanic = !/\b(not|non) hispanic\b/.test(n) && /\b(hispanic|latino|latina|latinx|latine)\b/.test(n);
+      if (q.options.some((o) => /\b(not|non) hispanic\b/.test(o))) {
+        return { value: hispanic ? 'Hispanic or Latino' : 'Not Hispanic or Latino', final: true };
+      }
+      return { value: hispanic ? 'Yes' : 'No', final: true };
+    },
+  },
+  {
     name: 'eeo_race',
     kinds: EEO_KINDS,
     sensitive: true,
@@ -533,15 +625,12 @@ const FIELD_RULES: Rule[] = [
   {
     name: 'phone_country_code',
     test: (q) => /\b(country|phone|calling|dial|dialing) code\b|\bcountry phone code\b/.test(q.norm),
-    answer: (p) => {
-      const code = (present(p.personal?.phoneCountryCode) || '+1').replace(/[^\d+]/g, '');
-      const country = present(p.personal?.country) || 'United States';
-      return { value: `${country} (${code.startsWith('+') ? code : '+' + code})` };
-    },
+    answer: (p) => dialCodeAnswer(p),
   },
   {
     name: 'phone',
-    kinds: TEXTISH,
+    // Never a type-ahead: a search box labelled "Phone" is the country-code picker next to the number
+    kinds: ['text'],
     test: (q) =>
       /\b(phone|telephone|contact number|cell phone|mobile (phone|number|no)|cell (number|no)|phone number)\b|^(mobile|cell)$/.test(q.norm),
     answer: (p, _q, f, ctx) => {
@@ -583,7 +672,13 @@ const FIELD_RULES: Rule[] = [
     name: 'city',
     kinds: LOCATION_KINDS,
     test: (q) => /^(current )?(city|town)( of residence)?$|^city name$/.test(q.norm),
-    answer: (p) => (present(p.personal?.city) ? { value: p.personal.city! } : null),
+    answer: (p, _q, f) => {
+      const city = present(p.personal?.city);
+      if (!city) return null;
+      // A type-ahead suggests "Austin, TX, USA" and "Austin, MN, USA": give it the state to pick the right one
+      const state = f.type === 'combobox' ? expandUsState(p.personal?.state) : '';
+      return { value: state ? `${city}, ${state}` : city };
+    },
   },
   {
     name: 'state',
@@ -736,6 +831,8 @@ function finalize(field: AutoFillExtractedField, ans: Answer, rule: Pick<Rule, '
     reason: ans.reason,
     skip: ans.skip,
     final: ans.final || rule.sensitive,
+    pick: ans.pick,
+    alternatives: ans.alternatives,
   };
   if (ans.skip) return result;
   if (!ans.value && !(ans.values && ans.values.length)) {
@@ -743,14 +840,26 @@ function finalize(field: AutoFillExtractedField, ans: Answer, rule: Pick<Rule, '
   }
 
   const knownOptions = field.options && field.options.length > 0;
-  if (knownOptions && (field.type === 'select' || field.type === 'radio_group')) {
-    const m = matchOption(field.options, ans.value);
+  // A checkbox group asked for one answer (Ashby's EEO questions are checkboxes) is handled like a radio group
+  const singleChoiceBoxes = field.type === 'checkbox_group' && !(ans.values && ans.values.length);
+  if (knownOptions && (field.type === 'select' || field.type === 'radio_group' || singleChoiceBoxes)) {
+    const highest = ans.pick === 'highest' ? highestOptionIndex(field.options!) : null;
+    let m = highest !== null ? { option: field.options![highest], index: highest, score: 100, ambiguous: false } : matchOption(field.options, ans.value);
+    for (const alt of ans.alternatives || []) {
+      if (m && !m.ambiguous) break;
+      m = matchOption(field.options, alt);
+    }
+    // A lone box from a group the page didn't tie together ("Female" on its own): not this one, nothing to flag
+    if ((!m || m.ambiguous) && singleChoiceBoxes && field.options!.length === 1 && rule.sensitive) {
+      return { ...result, value: '', skip: true };
+    }
     if (!m || m.ambiguous) {
       if (result.final) {
         const decline = isDeclineText(normalizeText(ans.value));
         return {
           ...result,
           value: '',
+          declined: decline || undefined,
           needsReview: true,
           reason: decline
             ? 'There is no "decline to answer" option here. The candidate has to choose.'
@@ -760,6 +869,7 @@ function finalize(field: AutoFillExtractedField, ans: Answer, rule: Pick<Rule, '
       return null;
     }
     result.value = m.option;
+    if (singleChoiceBoxes) result.values = [m.option];
   } else if (field.type === 'checkbox') {
     // A single box labelled "Yes"/"No" is ticked when the answer has the same meaning.
     const boxLabel = normalizeText(field.options?.[0]);
@@ -781,6 +891,10 @@ export function resolveTier1Field(
 ): AutoFillFieldResult | null {
   const q = buildQuestion(field);
 
+  // A country-code picker shares the "Phone" label with the number box, or has no label at all
+  // (the AI can't do better than the profile here, so a code that won't go in is flagged instead)
+  if (isDialCodeControl(field)) return finalize(field, { ...dialCodeAnswer(profile), final: true }, { name: 'phone_country_code' });
+
   if (q.autocomplete && AUTOCOMPLETE_MAP[q.autocomplete] && field.type !== 'radio_group' && field.type !== 'checkbox_group') {
     const ans = AUTOCOMPLETE_MAP[q.autocomplete](profile, field, ctx);
     if (ans) {
@@ -797,7 +911,8 @@ export function resolveTier1Field(
     const ans = rule.answer(profile, q, field, ctx);
     if (!ans) {
       if (rule.sensitive) {
-        return finalize(field, { value: '', needsReview: true, reason: 'Not enough profile data to answer this safely.', final: true }, rule);
+        const r = finalize(field, { value: '', needsReview: true, reason: 'Not enough profile data to answer this safely.', final: true }, rule);
+        return r && /^eeo_/.test(rule.name) ? { ...r, declined: true } : r;
       }
       // A matched rule with no data still blocks weaker field-name rules from guessing.
       return null;
