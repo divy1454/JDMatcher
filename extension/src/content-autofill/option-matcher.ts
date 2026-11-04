@@ -36,6 +36,24 @@ const PLACEHOLDER_PATTERNS = [
   /^select\s+\w+$/, // "Select country", "Select state"
 ];
 
+/** Index of the option with the biggest number in it ("Up to 25%", "50-75%", "75%+" -> the last), or null. */
+export function highestOptionIndex(options: string[]): number | null {
+  let best: number | null = null;
+  let bestValue = Number.NEGATIVE_INFINITY;
+  options.forEach((label, i) => {
+    if (isPlaceholderOption(label) || isDeclineText(normalizeText(label))) return;
+    const nums = (String(label).replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).map(Number);
+    if (!nums.length) return;
+    // "75%+" / "more than 50%" beat a plain "75%"
+    const top = Math.max(...nums) + (/\+|\b(more than|over|above|or more|and above)\b/i.test(label) ? 0.5 : 0);
+    if (top > bestValue) {
+      bestValue = top;
+      best = i;
+    }
+  });
+  return best;
+}
+
 export function isPlaceholderOption(text: string | null | undefined): boolean {
   const norm = normalizeText(text);
   return PLACEHOLDER_PATTERNS.some((re) => re.test(norm));
@@ -112,6 +130,15 @@ const STATE_NAMES = new Set(Object.values(US_STATES));
 
 function canonicalCountry(norm: string): string | null {
   return COUNTRY_ALIASES[norm] || null;
+}
+
+/** "Charlotte, NC, USA" -> { city: "charlotte", state: "north carolina" }; null without a comma. */
+function cityAndState(raw: string): { city: string; state: string | null } | null {
+  if (!raw.includes(',')) return null;
+  const parts = raw.split(',').map((p) => normalizeText(p)).filter(Boolean);
+  if (parts.length < 2) return null;
+  const state = parts.slice(1).map((p) => canonicalState(p)).find(Boolean) || null;
+  return { city: parts[0], state };
 }
 
 export function canonicalState(norm: string): string | null {
@@ -203,11 +230,20 @@ function parseRange(raw: string): [number, number] | null {
 // ---------------------------------------------------------------------------
 
 /** 0..100 score for how well `option` answers with `target`. */
+/** The qualifier on standard EEO race options: "Asian (Not Hispanic or Latino)". */
+const NOT_HISPANIC = /\(?\s*\b(?:not|non)[\s-]+hispanic(?:\s+or\s+latino)?\s*\)?/i;
+
 export function scoreOption(target: string, option: string): number {
   const t = normalizeText(target);
   const o = normalizeText(option);
   if (!t || !o) return 0;
   if (t === o) return 100;
+  // "Asian" means "Asian (Not Hispanic or Latino)" on Greenhouse/Ashby EEO forms; the "Not" used to read
+  // as the opposite answer, so no race ever matched
+  if (NOT_HISPANIC.test(option) && !/\b(hispanic|latino|latina|latinx)\b/.test(t)) {
+    const bare = option.replace(NOT_HISPANIC, ' ').trim();
+    if (normalizeText(bare)) return scoreOption(target, bare);
+  }
 
   // 1. Yes / No / Decline answers
   const tp = answerPolarity(t);
@@ -237,6 +273,15 @@ export function scoreOption(target: string, option: string): number {
     const od = canonicalDegree(o);
     if (od) return od === td ? 94 : 0;
   }
+
+  // 2b. Places: "Charlotte, North Carolina" against location suggestions like "Charlotte, NC, USA"
+  const tPlace = cityAndState(target);
+  const oPlace = cityAndState(option);
+  if (tPlace && oPlace && tPlace.city === oPlace.city) {
+    if (tPlace.state && oPlace.state) return tPlace.state === oPlace.state ? 96 : 0;
+    return 85;
+  }
+  if (tPlace && oPlace && tPlace.state && oPlace.state) return 0; // a different city
 
   // 3. Numbers against ranges ("7" -> "6-10 years")
   const tn = parseNumber(target);

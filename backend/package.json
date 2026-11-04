@@ -13,7 +13,8 @@
     "db:fresh": "tsx src/scripts/fresh-start.ts",
     "db:sync": "tsx src/db/sync.ts",
     "render:build": "npm install && npm run build && npm run db:sync",
-    "test:job-finder": "tsx src/scripts/test-job-finder.ts"
+    "test:job-finder": "tsx src/scripts/test-job-finder.ts",
+    "test:autofill-helpers": "tsx src/scripts/test-autofill-helpers.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

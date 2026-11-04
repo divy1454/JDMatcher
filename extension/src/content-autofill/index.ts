@@ -10,6 +10,7 @@ import {
   CandidateAutoFillProfile,
   AutoFillRunStats,
   AutoFillExtractedField,
+  AutoFillFieldResult,
   AutoFillReviewItem,
 } from '../content/types';
 import { scanApplicationForm, isFieldFilled, readFieldValue } from './form-detector';
@@ -39,6 +40,7 @@ import { startFormObserver, isElementAlreadyProcessed, markElementProcessed } fr
 import { trackForLearning, snapshotTrackedAnswers, installAnswerRecorder } from './answer-recorder';
 import { sleep, waitFor, waitForDomQuiet } from './dom-utils';
 import { normalizeText } from './text-utils';
+import { isDeclineText } from './option-matcher';
 import './content-autofill.css';
 
 console.log('[JDMatcher Enterprise] Auto-Fill Engine initialized in frame:', window.self === window.top ? 'top' : 'iframe');
@@ -305,6 +307,14 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
   const pending: AutoFillExtractedField[] = [];
   const optionsSeen = new Map<number, string[]>();
 
+  /**
+   * A voluntary self-identification question (pronouns, gender, race...) the candidate declines: when the
+   * question is optional and has no "prefer not to say" option, leaving it blank is the same as declining,
+   * so it isn't flagged. Required ones still go to the recruiter.
+   */
+  const optionalDecline = (field: AutoFillExtractedField, t1: AutoFillFieldResult): boolean =>
+    !field.isRequired && /^tier1:eeo_/.test(t1.strategy || '') && (Boolean(t1.declined) || isDeclineText(normalizeText(t1.value || '')));
+
   // --- Tier 1 (profile) and saved answers ---
   for (const field of todo) {
     const el = field.element!;
@@ -315,7 +325,7 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
         continue;
       }
       if (!t1.value && !(t1.values && t1.values.length)) {
-        flag(field, t1.reason || 'This needs the recruiter.');
+        if (!optionalDecline(field, t1)) flag(field, t1.reason || 'This needs the recruiter.');
         markElementProcessed(el);
         continue;
       }
@@ -329,7 +339,7 @@ async function fillCurrentStep(isManualTrigger: boolean, showToasts: boolean): P
       }
       if (res.optionsSeen?.length) optionsSeen.set(field.elementIndex, res.optionsSeen);
       if (t1.final) {
-        flag(field, res.reason || 'The profile answer could not be filled.');
+        if (!optionalDecline(field, t1)) flag(field, res.reason || 'The profile answer could not be filled.');
         markElementProcessed(el);
         continue;
       }

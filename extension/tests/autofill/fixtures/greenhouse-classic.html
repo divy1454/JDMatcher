@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Job Application for Clinical Data Engineer at Suvoda</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
+    .field { margin-bottom: 12px; }
+    label { display: block; margin-bottom: 4px; }
+    input[type="text"], select { width: 100%; padding: 5px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <!--
+    Classic Greenhouse embed (job_app?for=...): native selects, custom questions, and the EEOC section where
+    "Please identify your race" only appears after "Are you Hispanic/Latino?" is answered "No".
+  -->
+  <form id="application_form" onsubmit="return false">
+    <div class="field"><label for="first_name">First Name <span class="asterisk">*</span></label><input type="text" id="first_name" name="job_application[first_name]" aria-required="true"></div>
+    <div class="field"><label for="last_name">Last Name <span class="asterisk">*</span></label><input type="text" id="last_name" name="job_application[last_name]" aria-required="true"></div>
+    <div class="field"><label for="email">Email <span class="asterisk">*</span></label><input type="text" id="email" name="job_application[email]" aria-required="true"></div>
+    <div class="field"><label for="phone">Phone <span class="asterisk">*</span></label><input type="text" id="phone" name="job_application[phone]" aria-required="true"></div>
+
+    <div class="field">
+      <label for="q_source">How did you hear about Suvoda? <span class="asterisk">*</span></label>
+      <select id="q_source" name="job_application[answers_attributes][0][answer_selected_options_attributes][0][question_option_id]" aria-required="true">
+        <option value="">--</option><option value="1">Indeed</option><option value="2">LinkedIn</option><option value="3">Glassdoor</option><option value="4">Company Website</option><option value="5">Referral</option><option value="6">Other</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="q_related">Are you related to anyone who works for Suvoda? If yes, who? <span class="asterisk">*</span></label>
+      <input type="text" id="q_related" name="job_application[answers_attributes][1][text_value]" aria-required="true">
+    </div>
+    <div class="field">
+      <label for="q_travel">Are you willing/able to travel, if required? <span class="asterisk">*</span></label>
+      <select id="q_travel" name="job_application[answers_attributes][2][boolean_value]" aria-required="true">
+        <option value="">--</option><option value="1">Yes</option><option value="0">No</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="q_travel_pct">What percentage of travel are you comfortable with?</label>
+      <select id="q_travel_pct" name="job_application[answers_attributes][3][answer_selected_options_attributes][0][question_option_id]">
+        <option value="">--</option><option value="1">0%</option><option value="2">Up to 25%</option><option value="3">Up to 50%</option><option value="4">Up to 75%</option><option value="5">100%</option>
+      </select>
+    </div>
+
+    <div id="eeoc_fields">
+      <h3>U.S. Equal Opportunity Employment Information (Completion is voluntary)</h3>
+      <div class="field">
+        <label for="job_application_gender">Gender</label>
+        <select id="job_application_gender" name="job_application[gender]">
+          <option value="">Please select</option><option value="1">Male</option><option value="2">Female</option><option value="3">Decline To Self Identify</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="job_application_hispanic_ethnicity">Are you Hispanic/Latino?</label>
+        <select id="job_application_hispanic_ethnicity" name="job_application[hispanic_ethnicity]">
+          <option value="">Please select</option><option value="Yes">Yes</option><option value="No">No</option><option value="Decline To Self Identify">Decline To Self Identify</option>
+        </select>
+      </div>
+      <div class="field" id="race_field" style="display:none">
+        <label for="job_application_race">Please identify your race</label>
+        <select id="job_application_race" name="job_application[race]">
+          <option value="">Please select</option><option value="1">American Indian or Alaska Native</option><option value="2">Asian</option><option value="3">Black or African American</option><option value="5">Native Hawaiian or Other Pacific Islander</option><option value="6">White</option><option value="7">Two or More Races</option><option value="8">Decline To Self Identify</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="job_application_veteran_status">Veteran Status</label>
+        <select id="job_application_veteran_status" name="job_application[veteran_status]">
+          <option value="">Please select</option><option value="1">I am not a protected veteran</option><option value="2">I identify as one or more of the classifications of protected veteran</option><option value="3">I don't wish to answer</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="job_application_disability_status">Disability Status</label>
+        <select id="job_application_disability_status" name="job_application[disability_status]">
+          <option value="">Please select</option><option value="1">Yes, I have a disability (or previously had a disability)</option><option value="2">No, I don't have a disability</option><option value="3">I don't wish to answer</option>
+        </select>
+      </div>
+    </div>
+
+    <input type="button" id="submit_app" value="Submit Application">
+  </form>
+  <script>
+    // Greenhouse shows the race question only when the candidate says they are not Hispanic/Latino
+    const hisp = document.getElementById('job_application_hispanic_ethnicity');
+    hisp.addEventListener('change', () => {
+      document.getElementById('race_field').style.display = hisp.value === 'No' ? '' : 'none';
+    });
+    document.getElementById('submit_app').addEventListener('click', () => { window.__submitClicked = (window.__submitClicked || 0) + 1; });
+  </script>
+</body>
+</html>

@@ -228,6 +228,12 @@ export interface AutoFillFieldResult {
   skip?: boolean;
   /** Do not escalate this field to the next tier (e.g. conflicting profile data). */
   final?: boolean;
+  /** Voluntary self-identification the candidate declines (or has no answer for). */
+  declined?: boolean;
+  /** 'highest': choose the option with the biggest number (e.g. travel "75-100%"); `value` if none has one. */
+  pick?: 'highest';
+  /** Tried in order when `value` matches no option ("LinkedIn", then "Job board", ...). */
+  alternatives?: string[];
 }
 
 export interface AutoFillResolveFieldPayload {

@@ -119,6 +119,11 @@ check('matching', 'Two "Yes - ..." options are ambiguous', unit.matchOption(['Ye
 check('matching', 'Saved "Notice period" does not match a bare "No"', unit.questionSimilarity('Notice period', 'No') < 0.72, true);
 check('matching', 'Saved "How did you hear about us" matches "...about this job?"', unit.questionSimilarity('How did you hear about us', 'How did you hear about this job?') >= 0.72, true);
 check('matching', 'Saved "Salary" does not match a long hourly-rate question', unit.questionSimilarity('Salary', 'What are your salary expectations for this contract role, hourly?') < 0.72, true);
+check('matching', '"Charlotte, North Carolina" picks "Charlotte, NC, USA" (location suggestions)', m(['Charlotte, NC, USA', 'Charlotte, MI, USA', 'Charlotte Hall, MD, USA'], 'Charlotte, North Carolina'), 'Charlotte, NC, USA');
+check('matching', '"Austin, Texas" never picks "Austin, MN, USA"', m(['Austin, MN, USA', 'Austin, TX, USA'], 'Austin, Texas'), 'Austin, TX, USA');
+check('matching', '"Not Hispanic or Latino" is not "Hispanic or Latino"', m(['Hispanic or Latino', 'Not Hispanic or Latino'], 'Not Hispanic or Latino'), 'Not Hispanic or Latino');
+check('matching', '"Asian" = "Asian (Not Hispanic or Latino)"', m(['Hispanic or Latino', 'White (Not Hispanic or Latino)', 'Asian (Not Hispanic or Latino)', 'Decline to self-identify'], 'Asian'), 'Asian (Not Hispanic or Latino)');
+check('matching', 'Highest travel option', unit.highestOptionIndex(['--', '0%', 'Up to 25%', '50-75%', '75%+', "I'd rather not say"]), 4);
 
 // ---------------------------------------------------------------------------
 // Browser cases
@@ -245,7 +250,8 @@ const jdm = (page) => page.evaluate(() => ({ aiCalls: window.__jdm.aiCalls, conf
   const single = (id) => page.evaluate((i) => document.querySelector(`#${i}`).closest('.select__container').querySelector('.select__single-value')?.textContent || '', id);
   check(group, 'Authorized (React-Select) = Yes', await single('q_auth'), 'Yes');
   check(group, 'Sponsorship (React-Select) = Yes', await single('q_sponsor'), 'Yes');
-  check(group, 'How did you hear = saved answer "LinkedIn"', await single('q_source'), 'LinkedIn');
+  check(group, 'How did you hear = LinkedIn (standing answer)', await single('q_source'), 'LinkedIn');
+  check(group, 'Kubernetes years answered by the AI', await val(page, '#k8s'), '3');
   check(group, 'Gender = decline', await single('q_gender'), 'Decline To Self Identify');
   check(group, 'Submit not clicked by the engine', await page.evaluate(() => window.__submitClicked || 0), 0);
 
@@ -254,7 +260,7 @@ const jdm = (page) => page.evaluate(() => ({ aiCalls: window.__jdm.aiCalls, conf
   await page.waitForTimeout(300);
   const { confirms } = await jdm(page);
   const learned = (confirms[0]?.answers || []).map((a) => `${a.question} => ${a.answer}`).join(' | ');
-  check(group, 'Submitted screening answer is saved for next time', learned, 'How did you hear about this job? => LinkedIn', 'contains');
+  check(group, 'Submitted AI answer is saved for next time', learned, 'How many years of experience do you have with Kubernetes? => 3', 'contains');
   await page.screenshot({ path: path.join(tmp, 'screens', 'greenhouse.png'), fullPage: true });
   check(group, 'No page errors', errors, []);
   await context.close();
@@ -408,6 +414,109 @@ const jdm = (page) => page.evaluate(() => ({ aiCalls: window.__jdm.aiCalls, conf
   check(group, "JDMatcher's own widget untouched", widget, ['', '']);
   check(group, 'No page errors', errors, []);
   await context.close();
+}
+
+
+// --- G. Rippling-style form: unlabelled "Select" dropdowns, location type-ahead, optional self-ID ---
+async function ripplingCase(group, profile, expect) {
+  const { context, page, errors } = await openCase(
+    'https://ats.rippling.com/en-GB/acme/jobs/46f46d24-e55f-4011-b531-89cd4f9add2f/apply?jr_id=6aa1c92fdbc0e60e37e13a71',
+    'rippling.html',
+    '',
+    profile
+  );
+  await page.waitForTimeout(1500);
+  await fillForm(page);
+  const title = await waitForPanel(page, 'Ready', 60000);
+  check(group, 'Reaches "ready to submit"', title, 'Ready', 'startsWith');
+  const flags = (await panelItems(page)).filter((t) => !/^Answered by AI/.test(t));
+  check(group, 'Nothing flagged for the recruiter', flags, []);
+  check(group, 'First name', await val(page, '#first'), 'Ravi');
+  check(group, 'Phone', await val(page, '#phone'), '+1 512-555-0100');
+  check(group, 'Location type-ahead picks "Austin, TX, USA"', await val(page, '#loc'), 'Austin, TX, USA');
+  const a = await page.evaluate(() => window.__answers);
+  check(group, 'Work authorization (question is a <p>, dropdown says "Select") = Yes', a.q_auth, 'Yes');
+  check(group, 'How did you hear = LinkedIn (standing answer)', a.q_source, 'LinkedIn');
+  check(group, 'Pronouns: no "prefer not to say" option, optional -> left blank', a.q_pronouns, undefined);
+  check(group, 'Hispanic/Latino', a.q_hisp, expect.hispanic);
+  check(group, 'Race', a.q_race, expect.race);
+  const { aiCalls } = await jdm(page);
+  check(group, 'No question sent to the AI as "Select"', aiCalls.flatMap((c) => c.unresolvedFields).filter((f) => /^select$/i.test(f.question || f.label)).length, 0);
+  check(group, 'Submit never clicked', await page.evaluate(() => window.__submitClicked || 0), 0);
+  if (expect.screenshot) await page.screenshot({ path: path.join(tmp, 'screens', 'rippling.png'), fullPage: true });
+  check(group, 'No page errors', errors, []);
+  await context.close();
+}
+{
+  const asian = JSON.parse(JSON.stringify(PROFILE));
+  asian.equalOpportunity = { eeoRace: 'Asian', eeoGender: 'Male' };
+  await ripplingCase('rippling (candidate chose "Asian")', asian, { hispanic: 'No', race: 'Asian', screenshot: true });
+  await ripplingCase('rippling (candidate declines)', PROFILE, { hispanic: "I don't wish to answer", race: "I don't wish to answer" });
+}
+
+
+// --- H. Classic Greenhouse embed (Suvoda report): standing answers, Hispanic/Latino, race shown afterwards ---
+{
+  const group = 'greenhouse classic (Suvoda-style)';
+  const asian = JSON.parse(JSON.stringify(PROFILE));
+  asian.equalOpportunity = { eeoRace: 'Asian', eeoGender: 'Male', eeoVeteran: 'I am not a protected veteran' };
+  const { context, page, errors } = await openCase('https://boards.greenhouse.io/embed/job_app?for=suvoda&token=8919913002', 'greenhouse-classic.html', '', asian);
+  await page.waitForTimeout(1500);
+  await fillForm(page);
+  const title = await waitForPanel(page, 'Ready', 60000);
+  check(group, 'Reaches "ready to submit"', title, 'Ready', 'startsWith');
+  check(group, 'How did you hear about Suvoda? = LinkedIn', await selectedText(page, '#q_source'), 'LinkedIn');
+  check(group, 'Related to anyone who works there? = No', await val(page, '#q_related'), 'No');
+  check(group, 'Willing/able to travel = Yes', await selectedText(page, '#q_travel'), 'Yes');
+  check(group, 'Travel percentage = the highest option', await selectedText(page, '#q_travel_pct'), '100%');
+  check(group, 'Gender = Male', await selectedText(page, '#job_application_gender'), 'Male');
+  check(group, 'Hispanic/Latino = No (race is Asian)', await selectedText(page, '#job_application_hispanic_ethnicity'), 'No');
+  check(group, 'Race question that appears afterwards = Asian', await selectedText(page, '#job_application_race'), 'Asian');
+  check(group, 'Veteran', await selectedText(page, '#job_application_veteran_status'), 'I am not a protected veteran');
+  check(group, 'Disability = decline', await selectedText(page, '#job_application_disability_status'), "I don't wish to answer");
+  check(group, 'Nothing flagged', (await panelItems(page)).filter((t) => !/^Answered by AI/.test(t)), []);
+  const { aiCalls } = await jdm(page);
+  check(group, 'None of these went to the AI', aiCalls.flatMap((c) => c.unresolvedFields).map((f) => f.question), []);
+  check(group, 'Submit never clicked', await page.evaluate(() => window.__submitClicked || 0), 0);
+  await page.screenshot({ path: path.join(tmp, 'screens', 'greenhouse-classic.png'), fullPage: true });
+  check(group, 'No page errors', errors, []);
+  await context.close();
+}
+
+// --- I. Ashby: the EEO survey is checkbox groups ---
+async function ashbyCase(group, profile, expect) {
+  const { context, page, errors } = await openCase('https://jobs.ashbyhq.com/siftwell-analytics/0bb67374-a9f1-4748-b7f2-14ebfc846f8b/application', 'ashby.html', '', profile);
+  await page.waitForTimeout(1500);
+  await fillForm(page);
+  const title = await waitForPanel(page, 'Ready', 60000);
+  check(group, 'Reaches "ready to submit"', title, 'Ready', 'startsWith');
+  const ticked = (name) => page.evaluate((n) => Array.from(document.querySelectorAll(`input[name="${n}"]:checked`)).map((c) => document.querySelector(`label[for="${c.id}"]`).textContent), name);
+  check(group, 'Gender box', await ticked('eeoc_gender'), expect.gender);
+  check(group, 'Race box', await ticked('eeoc_race'), expect.race);
+  check(group, 'Veteran box', await ticked('eeoc_veteran'), expect.veteran);
+  check(group, 'Disability box', await ticked('eeoc_disability'), expect.disability);
+  check(group, 'Nothing flagged', (await panelItems(page)).filter((t) => !/^Answered by AI/.test(t)), []);
+  check(group, 'Submit never clicked', await page.evaluate(() => window.__submitClicked || 0), 0);
+  if (expect.screenshot) await page.screenshot({ path: path.join(tmp, 'screens', 'ashby.png'), fullPage: true });
+  check(group, 'No page errors', errors, []);
+  await context.close();
+}
+{
+  const chose = JSON.parse(JSON.stringify(PROFILE));
+  chose.equalOpportunity = { eeoRace: 'Asian', eeoGender: 'Male', eeoVeteran: 'I am not a protected veteran', eeoDisability: 'Decline to self-identify' };
+  await ashbyCase('ashby EEO checkboxes (candidate answered)', chose, {
+    gender: ['Male'],
+    race: ['Asian (Not Hispanic or Latino)'],
+    veteran: ['I am not a veteran'],
+    disability: ['I do not want to answer'],
+    screenshot: true,
+  });
+  await ashbyCase('ashby EEO checkboxes (candidate declines)', PROFILE, {
+    gender: ['Decline to self-identify'],
+    race: ['Decline to self-identify'],
+    veteran: ['Decline to self-identify'],
+    disability: ['I do not want to answer'],
+  });
 }
 
 await browser.close();
